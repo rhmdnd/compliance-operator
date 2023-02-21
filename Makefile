@@ -115,7 +115,7 @@ TEST_DEPLOY=$(TEST_SETUP_DIR)/deploy_rbac.yaml
 
 # Pass extra flags to the e2e test run.
 # e.g. to run a specific test in the e2e test suite, do:
-# 	make e2e E2E_GO_TEST_FLAGS="-v -run TestE2E/TestScanWithNodeSelectorFiltersCorrectly"
+# 	make e2e E2E_GO_TEST_FLAGS="-v -testRegex TestScanWithNodeSelectorFiltersCorrectly"
 E2E_GO_TEST_FLAGS?=-v -test.timeout 120m
 
 # By default we run all tests; available options: all, parallel, serial
@@ -560,7 +560,7 @@ test-benchmark: ## Run the benchmark tests -- Note that this can only be ran for
 
 .PHONY: e2e
 e2e: e2e-set-image prep-e2e
-	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-test.log
+	CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-test.log
 
 .PHONY: prep-e2e
 prep-e2e: kustomize

@@ -28,6 +28,7 @@ type Context struct {
 	kubeclient         kubernetes.Interface
 	restMapper         *restmapper.DeferredDiscoveryRESTMapper
 	skipCleanupOnError bool
+	testRegex          string
 }
 
 // todo(camilamacedo86): Remove the following line just added for we are able to deprecated TestCtx
@@ -73,6 +74,7 @@ func (f *Framework) newContext(t *testing.T) *Context {
 		restMapper:         f.restMapper,
 		skipCleanupOnError: f.skipCleanupOnError,
 		testType:           f.testType,
+		testRegex:          f.testRegex,
 	}
 }
 
@@ -116,4 +118,8 @@ func (ctx *Context) GetTestType() string {
 
 func (ctx *Context) AddCleanupFn(fn cleanupFn) {
 	ctx.cleanupFns = append(ctx.cleanupFns, fn)
+}
+
+func (ctx *Context) GetTestRegex() string {
+	return ctx.testRegex
 }

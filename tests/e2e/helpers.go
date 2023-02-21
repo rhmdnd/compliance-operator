@@ -286,18 +286,24 @@ func executeTests(t *testing.T, tests ...testExecution) {
 	defer f.Client.Delete(goctx.TODO(), ocp4Pb)
 
 	testtype := ctx.GetTestType()
+	testRegex := ctx.GetTestRegex()
+	re := regexp.MustCompile(testRegex)
+
 	if testtype == framework.TestTypeAll || testtype == framework.TestTypeParallel {
 		t.Run("Parallel tests", func(t *testing.T) {
 			for _, test := range tests {
+				match := re.MatchString(test.Name)
 				// Don't lose test reference
 				test := test
-				if test.IsParallel {
+				if test.IsParallel && match {
 					t.Run(test.Name, func(tt *testing.T) {
 						tt.Parallel()
 						if err := test.TestFn(tt, f, ctx, mcTctx, ns); err != nil {
 							tt.Error(err)
 						}
 					})
+				} else if !match {
+					E2ELogf(t, "Skipping %s", test.Name)
 				}
 			}
 		})
@@ -310,12 +316,15 @@ func executeTests(t *testing.T, tests ...testExecution) {
 			for _, test := range tests {
 				// Don't lose test reference
 				test := test
-				if !test.IsParallel {
+				match := re.MatchString(test.Name)
+				if !test.IsParallel && match {
 					t.Run(test.Name, func(t *testing.T) {
 						if err := test.TestFn(t, f, ctx, mcTctx, ns); err != nil {
 							t.Error(err)
 						}
 					})
+				} else if !match {
+					E2ELogf(t, "Skipping %s", test.Name)
 				}
 			}
 		})

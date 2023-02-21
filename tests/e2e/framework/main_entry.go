@@ -19,8 +19,10 @@ func MainEntry(m *testing.M) {
 	if kcFlag == nil {
 		flag.StringVar(&fopts.kubeconfigPath, KubeConfigFlag, "", "path to kubeconfig")
 	}
+	testFlag := flag.Lookup(TestRegexFlag)
 
 	flag.Parse()
+	fopts.testRegex = testFlag.Value.String()
 
 	if kcFlag != nil {
 		fopts.kubeconfigPath = kcFlag.Value.String()

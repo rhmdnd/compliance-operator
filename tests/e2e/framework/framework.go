@@ -74,6 +74,7 @@ type Framework struct {
 	localOperatorArgs  string
 	kubeconfigPath     string
 	testType           string
+	testRegex          string
 	schemeMutex        sync.Mutex
 	LocalOperator      bool
 	skipCleanupOnError bool
@@ -86,6 +87,7 @@ type frameworkOpts struct {
 	namespacedManPath  string
 	localOperatorArgs  string
 	testType           string
+	testRegex          string
 	isLocalOperator    bool
 	skipCleanupOnError bool
 }
@@ -105,6 +107,7 @@ const (
 	LocalOperatorArgs      = "localOperatorArgs"
 	SkipCleanupOnErrorFlag = "skipCleanupOnError"
 	TestTypeFlag           = "testType"
+	TestRegexFlag          = "testRegex"
 
 	TestOperatorNamespaceEnv = "TEST_OPERATOR_NAMESPACE"
 	TestWatchNamespaceEnv    = "TEST_WATCH_NAMESPACE"
@@ -123,6 +126,8 @@ func (opts *frameworkOpts) addToFlagSet(flagset *flag.FlagSet) {
 			"will be skipped if an error is faced.")
 	flagset.StringVar(&opts.testType, TestTypeFlag, TestTypeAll,
 		"Defines the type of tests to run. (Options: all, serial, parallel)")
+	flagset.StringVar(&opts.testRegex, TestRegexFlag, "",
+		"A regular expression used to filter the tests that are run.")
 }
 
 func newFramework(opts *frameworkOpts) (*Framework, error) {
@@ -174,6 +179,7 @@ func newFramework(opts *frameworkOpts) (*Framework, error) {
 		restMapper:         restMapper,
 		skipCleanupOnError: opts.skipCleanupOnError,
 		testType:           opts.testType,
+		testRegex:          opts.testRegex,
 	}
 	return framework, nil
 }
