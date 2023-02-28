@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-func MainEntry(m *testing.M) {
+// setUp is an adapter for MainEntry and NewFramework to share similar code.
+func setUp() *Framework {
 	fopts := &frameworkOpts{}
 	fopts.addToFlagSet(flag.CommandLine)
 	// controller-runtime registers the --kubeconfig flag in client config
@@ -30,7 +31,15 @@ func MainEntry(m *testing.M) {
 	if err != nil {
 		log.Fatalf("Failed to create framework: %v", err)
 	}
+	return f
+}
 
+// MainEntry sets up a Framework, which contains clients for the tests to share when
+// interacting with the cluster. The Framework is exposed as a global variable called Global.
+// MainEntry does effectively the same thing as NewFramework without returning the actual
+// Framework reference.
+func MainEntry(m *testing.M) {
+	f := setUp()
 	Global = f
 
 	exitCode, err := f.runM(m)
@@ -38,4 +47,11 @@ func MainEntry(m *testing.M) {
 		log.Fatal(err)
 	}
 	os.Exit(exitCode)
+}
+
+// NewFramework sets up and returns a Framework, which contains clients for the tests to share when
+// interacting with a cluster. This method is meant to supersede MainEntry so we don't have to rely
+// on a global variable for sharing the Framework between tests or test code.
+func NewFramework() *Framework {
+	return setUp()
 }

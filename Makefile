@@ -574,6 +574,14 @@ prep-e2e: kustomize
 	$(KUSTOMIZE) build config/no-ns | sed -e 's%$(DEFAULT_OPERATOR_IMAGE)%$(OPERATOR_IMAGE)%' -e 's%$(DEFAULT_CONTENT_IMAGE)%$(E2E_CONTENT_IMAGE_PATH)%' -e 's%$(DEFAULT_OPENSCAP_IMAGE)%$(OPENSCAP_IMAGE)%'  > $(TEST_DEPLOY)
 	$(KUSTOMIZE) build config/crd > $(TEST_CRD)
 
+.PHONY: functional-parallel
+functional-parallel: ## Installs the operator on a cluster and runs all non-destructive functional tests concurrently.
+	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/functional/parallel/main_test.go $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/functional-parallel-test.log
+
+.PHONY: functional-serial
+functional-serial: ## Installs the operator on a cluster and runs all serial tests.
+	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/functional/serial/main_test.go $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/functional-serial-test.log
+
 ifdef IMAGE_FROM_CI
 e2e-set-image: kustomize
 	cd config/manager && $(KUSTOMIZE) edit set image $(APP_NAME)=$(IMAGE_FROM_CI)

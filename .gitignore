@@ -83,3 +83,5 @@ tags
 # Generated files for E2E test setup
 tests/_setup
 tests/e2e-test.log
+tests/functional-parallel-test.log
+tests/functional-serial-test.log
