@@ -1606,6 +1606,35 @@ func TestSuspendScanSettingDoesNotCreateScan(t *testing.T) {
 	}
 }
 
+// We do this as a serial test since removing the default binding will affect
+// other tests
+func TestDefaultScanSettingsAreNotProtected(t *testing.T) {
+	f := framework.Global
+
+	// get the default binding which is created by the operator when it starts
+	defaultScanSettingName := "default"
+	namespaceType := types.NamespacedName{Namespace: f.OperatorNamespace, Name: defaultScanSettingName}
+	ss := compv1alpha1.ScanSetting{}
+	err := f.Client.Get(context.TODO(), namespaceType, &ss)
+	if err != nil {
+		t.Fatalf("failed to get scan setting binding %s: %s", defaultScanSettingName, err)
+	}
+	ssCopy := ss.DeepCopy()
+
+	// assert we can delete the binding
+	err = f.Client.Delete(context.TODO(), ssCopy)
+	if err != nil {
+		t.Fatalf("failed to delete scan setting binding %s: %s", defaultScanSettingName, err)
+	}
+
+	// restore the binding (so that other tests can be added after this test)
+	err = f.Client.Create(context.TODO(), &ss, nil)
+	if err != nil {
+		t.Fatalf("failed to restore scan setting binding %s: %s", defaultScanSettingName, err)
+	}
+
+}
+
 //testExecution{
 //	Name:       "TestNodeSchedulingErrorFailsTheScan",
 //	IsParallel: false,
