@@ -8,6 +8,7 @@ export GOARCH = $(shell go env GOARCH)
 # Runtime variables
 # =================
 DEFAULT_REPO=ghcr.io/complianceascode
+OSDE2E_APP_NAME=compliance-operator-osde2e-rosa
 IMAGE_REPO?=$(DEFAULT_REPO)
 RUNTIME?=podman
 # Required for podman < 3.4.7 and buildah to use microdnf in fedora 35
@@ -69,6 +70,7 @@ OPENSCAP_TAG?=$(DEFAULT_OPENSCAP_TAG)
 OPENSCAP_DOCKER_CONTEXT=./images/openscap
 DEFAULT_OPENSCAP_IMAGE=$(DEFAULT_REPO)/$(OPENSCAP_NAME):$(DEFAULT_OPENSCAP_TAG)
 OPENSCAP_IMAGE?=$(DEFAULT_OPENSCAP_IMAGE)
+OSDE2E_IMAGE=$(IMAGE_REPO)/$(OSDE2E_APP_NAME):$(TAG)
 
 # Image path to use. Set this if you want to use a specific path for building
 # or your e2e tests. This is overwritten if we build the image and push it to
@@ -287,6 +289,7 @@ clean-modcache: ## Run go clean -modcache.
 .PHONY: clean-test
 clean-test: clean-cache ## Clean up test cache and test setup artifacts.
 	rm -rf $(TEST_SETUP_DIR)
+	rm rosa.test
 
 .PHONY: clean-kustomize
 clean-kustomize: ## Reset kustomize changes in the repo.
@@ -412,6 +415,15 @@ images: image bundle-image  ## Build operator and bundle images.
 
 .PHONY: images-extra
 images-extra: openscap-image e2e-content-images  ## Build the openscap and test content images.
+
+.PHONY: build-osde2e-test-binary
+build-osde2e-test-binary:
+	$(GO) test ./tests/e2e/rosa -c -v -o rosa.test
+
+.PHONY: build-osde2e-test-image
+build-osde2e-test-image:
+	$(RUNTIME) $(RUNTIME_BUILD_CMD) -f Dockerfile.rosa-ci -t $(OSDE2E_IMAGE) .
+	$(RUNTIME) push $(OSDE2E_IMAGE)
 
 .PHONY: build
 build: generate fmt vet test-unit ## Build the operator binary.
