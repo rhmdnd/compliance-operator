@@ -10,6 +10,7 @@ LABEL \
 
 RUN true \
     && microdnf install -y openscap-scanner \
+    && microdnf upgrade glibc \
     && microdnf clean all \
     && true
 

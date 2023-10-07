@@ -15,6 +15,11 @@ ENV OPERATOR=/usr/local/bin/compliance-operator \
     USER_UID=1001 \
     USER_NAME=compliance-operator
 
+RUN true \
+    && microdnf upgrade glibc \
+    && microdnf clean all \
+    && true
+
 # install operator binary
 COPY --from=builder /go/src/github.com/openshift/compliance-operator/build/_output/bin/compliance-operator ${OPERATOR}
 
