@@ -11,9 +11,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: compliance-operator
-    appstudio.openshift.io/component: openshift-compliance-openscap-container
+    appstudio.openshift.io/component: scanner
     pipelines.appstudio.openshift.io/type: build
-  name: openshift-compliance-openscap-container-on-push
+  name: scanner-on-push
   namespace: ocp-isc-tenant
 spec:
   params:
@@ -22,7 +22,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-compliance-openscap-container:{{revision}}
+    value: quay.io/redhat-user-workloads/ocp-isc-tenant/scanner:{{revision}}
   - name: dockerfile
     value: images/openscap/Dockerfile
   pipelineSpec:
