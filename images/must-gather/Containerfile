@@ -15,7 +15,8 @@ LABEL \
 
 # Install openshift-clients, jq, tar, and rsync, which are required for
 # must-gather.
-RUN microdnf -y install openshift-clients jq tar rsync
+RUN subscription-manager register --org $(cat "/activation-key/org") --activationkey $(cat "/activation-key/activationkey") && \
+    microdnf -y install openshift-clients jq tar rsync
 
 WORKDIR /
 
