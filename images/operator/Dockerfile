@@ -14,7 +14,6 @@ FROM registry.redhat.io/ubi9/ubi:latest
 
 RUN INSTALL_PKGS="tar" && \
     if [ ! -e /usr/bin/dnf ]; then ln -s /usr/bin/microdnf /usr/bin/dnf; fi && \
-        subscription-manager register --org $(cat "/activation-key/org") --activationkey $(cat "/activation-key/activationkey") && \
         dnf update glibc -y && \
         dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
         dnf clean all && rm -rf /var/cache/*
