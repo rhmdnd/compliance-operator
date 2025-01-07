@@ -571,7 +571,7 @@ github.com/openshift/api/template
 github.com/openshift/api/template/v1
 github.com/openshift/api/user
 github.com/openshift/api/user/v1
-# github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87 => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
+# github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87 => github.com/openshift/client-go v0.0.0-20250106104058-89709a455e2a
 ## explicit; go 1.22.0
 github.com/openshift/client-go/build/applyconfigurations/build/v1
 github.com/openshift/client-go/build/applyconfigurations/internal
@@ -1239,7 +1239,7 @@ k8s.io/apimachinery/third_party/forked/golang/reflect
 ## explicit; go 1.22.0
 k8s.io/apiserver/pkg/authentication/user
 k8s.io/apiserver/pkg/storage/names
-# k8s.io/client-go v0.31.0
+# k8s.io/client-go v0.31.1
 ## explicit; go 1.22.0
 k8s.io/client-go/applyconfigurations/admissionregistration/v1
 k8s.io/client-go/applyconfigurations/admissionregistration/v1alpha1
@@ -1550,7 +1550,7 @@ k8s.io/kube-openapi/pkg/validation/spec
 # k8s.io/pod-security-admission v0.31.0
 ## explicit; go 1.22.0
 k8s.io/pod-security-admission/api
-# k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
+# k8s.io/utils v0.0.0-20240921022957-49e7df575cb6
 ## explicit; go 1.18
 k8s.io/utils/buffer
 k8s.io/utils/clock
@@ -1649,4 +1649,4 @@ sigs.k8s.io/structured-merge-diff/v4/value
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
 # github.com/openshift/api => github.com/openshift/api v0.0.0-20250106182855-361e35fd82e5
-# github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
+# github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20250106104058-89709a455e2a
