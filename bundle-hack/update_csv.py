@@ -109,7 +109,7 @@ def replace_icon(m: dict) -> None:
 def replace_images(m: dict) -> None:
 
     CO_OPERATOR_IMAGE_PULLSPEC = "quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator"
-    CO_CONTENT_IMAGE_PULLSPEC = "quay.io/redhat-user-workloads/ocp-isc-tenant/cac-content-fork"
+    CO_CONTENT_IMAGE_PULLSPEC = "quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-content"
     CO_OPENSCAP_IMAGE_PULLSPEC = "quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-openscap"
     CO_MUST_GATHER_IMAGE_PULLSPEC = "quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-must-gather"
 
