@@ -8,7 +8,7 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.34.1
 	k8s.io/apimachinery v0.31.1
-	k8s.io/client-go v0.31.0
+	k8s.io/client-go v0.31.1
 	open-cluster-management.io/api v0.14.0
 	sigs.k8s.io/controller-runtime v0.19.0
 )
@@ -130,7 +130,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240228011516-70dd3763d340 // indirect
 	k8s.io/pod-security-admission v0.31.0
-	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
+	k8s.io/utils v0.0.0-20240921022957-49e7df575cb6 // indirect
 	sigs.k8s.io/controller-tools v0.16.1
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
@@ -190,5 +190,5 @@ require (
 
 replace (
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20250106182855-361e35fd82e5
-	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
+	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20250106104058-89709a455e2a
 )
