@@ -170,3 +170,4 @@ def write_manifest(m: dict) -> None:
 
 if __name__ == "__main__":
     main()
+
