@@ -1,8 +1,6 @@
 module github.com/ComplianceAsCode/compliance-operator
 
-go 1.22.0
-
-toolchain go1.22.6
+go 1.23.0
 
 require (
 	github.com/onsi/ginkgo v1.16.5
