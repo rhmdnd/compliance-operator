@@ -15517,7 +15517,7 @@ users to obtain unauthorized access to resources.</xccdf-1.2:rationale>
           </xccdf-1.2:Rule>
           <xccdf-1.2:Rule selected="false" id="xccdf_org.ssgproject.content_rule_scansettingbinding_exists" severity="medium">
             <xccdf-1.2:title>Ensure that Compliance Operator is scanning the cluster</xccdf-1.2:title>
-            <xccdf-1.2:description><html:a href="https://docs.openshift.com/container-platform/latest/security/compliance_operator/compliance-operator-understanding.html#compliance-operator-understanding">The Compliance Operator</html:a>
+            <xccdf-1.2:description><html:a href="https://docs.openshift.com/container-platform/latest/security/compliance_operator/co-overview.html">The Compliance Operator</html:a>
 scans the hosts and the platform (OCP)
 configurations for software flaws and improper configurations according
 to different compliance benchmarks. It uses OpenSCAP as a backend,
@@ -15559,7 +15559,7 @@ for all systems, to detect potential flaws and unauthorised access.</xccdf-1.2:r
           </xccdf-1.2:Rule>
           <xccdf-1.2:Rule selected="false" id="xccdf_org.ssgproject.content_rule_scansettings_have_schedule" severity="medium">
             <xccdf-1.2:title>Ensure that Compliance Operator scans are running periodically</xccdf-1.2:title>
-            <xccdf-1.2:description><html:a href="https://docs.openshift.com/container-platform/latest/security/compliance_operator/compliance-operator-understanding.html#compliance-operator-understanding">The Compliance Operator</html:a>
+            <xccdf-1.2:description><html:a href="https://docs.openshift.com/container-platform/latest/security/compliance_operator/co-overview.html">The Compliance Operator</html:a>
 scans the hosts and the platform (OCP)
 configurations for software flaws and improper configurations according
 to different compliance benchmarks. Compliance Operator allows its
