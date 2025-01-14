@@ -9,7 +9,7 @@ import (
 	"k8s.io/client-go/discovery"
 
 	ocpcfgv1 "github.com/openshift/api/config/v1"
-	mcfgv1 "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1"
+	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"

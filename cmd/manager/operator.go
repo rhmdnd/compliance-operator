@@ -29,7 +29,7 @@ import (
 	"github.com/ComplianceAsCode/compliance-operator/pkg/xccdf"
 	"github.com/ComplianceAsCode/compliance-operator/version"
 	ocpapi "github.com/openshift/api"
-	mcfgapi "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io"
+	mcfgapi "github.com/openshift/api/machineconfiguration"
 	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	monclientv1 "github.com/prometheus-operator/prometheus-operator/pkg/client/versioned/typed/monitoring/v1"
 	"github.com/spf13/cobra"

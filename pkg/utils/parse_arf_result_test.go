@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	compv1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
-	mcfgv1 "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1"
+	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfgcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 )
 
