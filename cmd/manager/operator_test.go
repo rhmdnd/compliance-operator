@@ -21,6 +21,7 @@ var _ = Describe("Operator Startup Function tests", func() {
 		})
 	})
 	Context("Service Monitor Creation", func() {
+		m := "metrics.foobar.svc"
 		When("Installing to non-controlled namespace", func() {
 			It("ServiceMonitor is generated with the proper TLSConfig ServerName", func() {
 				metricService := operatorMetricService("foobar")
@@ -28,7 +29,7 @@ var _ = Describe("Operator Startup Function tests", func() {
 				controllerMetricServiceFound := false
 				for _, ep := range sm.Spec.Endpoints {
 					if ep.Port == metrics.ControllerMetricsServiceName && ep.TLSConfig != nil {
-						Expect(ep.TLSConfig.ServerName).To(BeEquivalentTo("metrics.foobar.svc"))
+						Expect(ep.TLSConfig.ServerName).To(BeEquivalentTo(&m))
 						controllerMetricServiceFound = true
 					}
 				}
