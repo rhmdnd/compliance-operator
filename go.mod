@@ -85,7 +85,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clarketm/json v1.17.1
-	github.com/coreos/ignition/v2 v2.19.0
+	github.com/coreos/ignition/v2 v2.20.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dsnet/compress v0.0.1
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
@@ -154,7 +154,7 @@ require (
 
 require (
 	github.com/antchfx/xpath v1.3.3 // indirect
-	github.com/aws/aws-sdk-go v1.54.19 // indirect
+	github.com/aws/aws-sdk-go v1.55.5 // indirect
 	github.com/ccojocar/zxcvbn-go v1.0.2 // indirect
 	github.com/coreos/fcct v0.5.0 // indirect
 	github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb // indirect
