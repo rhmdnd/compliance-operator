@@ -1,0 +1,16 @@
+contentOrigin:
+  repofiles:
+     - ./redhat.repo
+
+packages:
+  - openscap
+  - openscap-scanner
+
+arches:
+  - aarch64
+  - x86_64
+  - s390x
+  - ppc64le
+
+context:
+    containerfile: images/openscap/Containerfile

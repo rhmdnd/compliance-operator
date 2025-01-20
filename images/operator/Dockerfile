@@ -10,11 +10,8 @@ RUN make manager
 
 FROM registry.redhat.io/ubi9/ubi-minimal:latest
 
-RUN INSTALL_PKGS="tar" && \
-    if [ ! -e /usr/bin/dnf ]; then ln -s /usr/bin/microdnf /usr/bin/dnf; fi && \
-        dnf update glibc -y && \
-        dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
-        dnf clean all && rm -rf /var/cache/*
+RUN microdnf install -y --setopt=tsflags=nodocs tar
+RUN microdnf clean all && rm -rf /var/cache/*
 
 LABEL \
         io.k8s.display-name="OpenShift Compliance Operator" \
