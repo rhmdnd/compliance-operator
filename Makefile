@@ -245,6 +245,7 @@ endif
 check-operator-version:
 ifndef VERSION
 	$(error VERSION must be defined)
+	$(error PREVIOUS_VERSION must be defined)
 endif
 
 # Set CATALOG_DEPLOY_NS= when running `make catalog-deploy` to override the default.
@@ -383,8 +384,10 @@ endif
 
 ##@ Generate
 
-.PHONY: update-skip-range
-update-skip-range: check-operator-version ## Set olm.skipRange attribute in the operator CSV to $VERSION. This assumes upgrades can skip versions (0.1.47 can be upgraded to 0.1.53).
+.PHONY: update-version-numbers
+update-version-numbers: check-operator-version ## Set skip range and version numbers in manifests.
+	sed -i "s/\(^  version: \).*/\1$(VERSION)/" config/manifests/bases/compliance-operator.clusterserviceversion.yaml
+	sed -i "s/\(^  replaces: compliance-operator.v\).*/\1$(PREVIOUS_VERSION)/" config/manifests/bases/compliance-operator.clusterserviceversion.yaml
 	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" config/manifests/bases/compliance-operator.clusterserviceversion.yaml
 	sed -i "s/\(\"name\": \"compliance-operator.v\).*\"/\1$(VERSION)\"/" catalog/preamble.json
 	sed -i "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" catalog/preamble.json
@@ -432,7 +435,7 @@ verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
 	hack/tree-status
 
 .PHONY: bundle
-bundle: check-operator-version operator-sdk manifests update-skip-range kustomize ## Generate bundle manifests and metadata, then validate generated files.
+bundle: check-operator-version operator-sdk manifests update-version-numbers kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(SDK_BIN) generate kustomize manifests --apis-dir=./pkg/apis -q
 	@echo "kustomize using deployment image $(IMG)"
 	cd config/manager && $(KUSTOMIZE) edit set image $(APP_NAME)=$(IMG)
