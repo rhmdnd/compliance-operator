@@ -2,6 +2,7 @@ on:
   push:
     paths:
       - "images/testcontent/**"
+      - ".github/workflows/test-broken-content-latest.yml"
 
 jobs:
   test-broken-content-container-push:
