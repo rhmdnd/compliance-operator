@@ -154,4 +154,4 @@ jobs:
             ```
             make catalog-deploy CATALOG_IMG=ghcr.io/complianceascode/compliance-operator-catalog:${{ needs.get-pr-number.outputs.pr-number }}-${{ needs.get-pr-number.outputs.commit_sha }}
             ```
-          pr_number: ${{ needs.get-pr-number.outputs.pr-number }}
+          pr-number: ${{ needs.get-pr-number.outputs.pr-number }}
