@@ -79,4 +79,4 @@ jobs:
       tag: latest
       dockerfile_path: images/must-gather/Dockerfile.ocp
       vendor: "Compliance Operator Authors"
-      platforms: "linux/amd64,linux/arm64"
+      platforms: "linux/amd64"
