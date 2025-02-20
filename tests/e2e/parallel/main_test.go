@@ -459,7 +459,7 @@ func TestServiceMonitoringMetricsTarget(t *testing.T) {
 	}
 	defer f.CleanUpRBACForMetricsTest()
 
-	metricsTargets, err := f.GetPrometheusMetricTargets()
+	metricsTargets, err := f.WaitForPrometheusMetricTargets()
 	if err != nil {
 		t.Fatalf("failed to get prometheus metric targets: %s", err)
 	}

@@ -426,46 +426,84 @@ func (f *Framework) CleanUpRBACForMetricsTest() error {
 	return nil
 }
 
-// GetPrometheusMetricTargets retrieves Prometheus metric targets
-func (f *Framework) GetPrometheusMetricTargets() ([]promv1.Target, error) {
+// WaitForPrometheusMetricTargets retrieves Prometheus metric targets
+func (f *Framework) WaitForPrometheusMetricTargets() ([]promv1.Target, error) {
 	var metricsTargets []promv1.Target
-	const prometheusCommand = `TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token) && { curl -k -s https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/targets --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $TOKEN"; }`
+	var lastErr error
+
+	const prometheusCommand = `
+		TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token) && 
+		{ curl -k -s https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/targets \
+		  --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+		  -H "Authorization: Bearer $TOKEN"; }
+	`
 	namespace := f.OperatorNamespace
-	out, err := runOCandGetOutput([]string{
-		"run", "--rm", "-i", "--restart=Never", "--image=registry.fedoraproject.org/fedora:latest",
-		"-n", namespace, "--overrides={\"spec\": {\"serviceAccountName\": \"" + PromethusTestSA + "\"}}", "metrics-test", "--", "bash", "-c", prometheusCommand})
 
-	if err != nil {
-		return metricsTargets, fmt.Errorf("error getting output: %v", err)
-	}
+	timeouterr := wait.Poll(RetryInterval, Timeout, func() (bool, error) {
+		// Clear slice in case of a retry
+		metricsTargets = nil
 
-	outTrimmed := trimOutput(string(out))
-	if outTrimmed == "" {
-		return metricsTargets, fmt.Errorf("error getting output")
-	}
+		out, err := runOCandGetOutput([]string{
+			"run", "--rm", "-i", "--restart=Never", "--image=registry.fedoraproject.org/fedora:latest",
+			"-n", namespace,
+			"--overrides={\"spec\": {\"serviceAccountName\": \"" + PromethusTestSA + "\"}}",
+			"metrics-test", "--", "bash", "-c", prometheusCommand,
+		})
 
-	log.Printf("Metrics output:\n%s\n", outTrimmed)
-	var responseData struct {
-		Data struct {
-			ActiveTargets []promv1.Target `json:"activeTargets"`
-		} `json:"data"`
-	}
-	err = json.Unmarshal([]byte(outTrimmed), &responseData)
-	if err != nil {
-		return metricsTargets, fmt.Errorf("error unmarshalling json: %v", err)
-	}
+		if err != nil {
+			lastErr = fmt.Errorf("error getting output: %v", err)
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		}
 
-	// Filter metrics for the specified namespace
-	for _, metricsTarget := range responseData.Data.ActiveTargets {
-		// check if there is a metric label first
-		if metricsTarget.Labels != nil {
-			if metricContainsLabel(metricsTarget, "namespace", namespace) {
-				// check if it has endpoint equal to metrics or metrics-co
-				if metricContainsLabel(metricsTarget, "endpoint", "metrics") || metricContainsLabel(metricsTarget, "endpoint", "metrics-co") {
-					metricsTargets = append(metricsTargets, metricsTarget)
-				}
+		outTrimmed := trimOutput(string(out))
+		if outTrimmed == "" {
+			lastErr = fmt.Errorf("empty output from prometheus command")
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		}
+
+		log.Printf("Metrics output:\n%s\n", outTrimmed)
+		var responseData struct {
+			Data struct {
+				ActiveTargets []promv1.Target `json:"activeTargets"`
+			} `json:"data"`
+		}
+		err = json.Unmarshal([]byte(outTrimmed), &responseData)
+		if err != nil {
+			lastErr = fmt.Errorf("error unmarshalling json: %v", err)
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		}
+
+		// Filter metrics for the specified namespace
+		for _, metricsTarget := range responseData.Data.ActiveTargets {
+			if metricsTarget.Labels != nil &&
+				metricContainsLabel(metricsTarget, "namespace", namespace) &&
+				(metricContainsLabel(metricsTarget, "endpoint", "metrics") ||
+					metricContainsLabel(metricsTarget, "endpoint", "metrics-co")) {
+
+				metricsTargets = append(metricsTargets, metricsTarget)
 			}
 		}
+
+		// If we find at least one matching target, consider this a success.
+		if len(metricsTargets) == 0 {
+			lastErr = fmt.Errorf("no matching metrics found for namespace %q", namespace)
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		}
+
+		// Successfully retrieved and filtered targets, stop polling
+		return true, nil
+	})
+
+	// If Poll returned an error, it means we timed out
+	if timeouterr != nil {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, timeouterr
 	}
 
 	return metricsTargets, nil
