@@ -70,11 +70,47 @@ func createFakeKubletConfigCM(reconciler ReconcileComplianceScan, scanInstance *
 	})
 }
 
+func createFakeConfigMapForAggregator(reconciler ReconcileComplianceScan, s *compv1alpha1.ComplianceScan) {
+	n := getConfigMapForNodeName(s.Name, PlatformScanName)
+	reconciler.Client.Create(context.TODO(), &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      n,
+			Namespace: common.GetComplianceOperatorNamespace(),
+			Labels: map[string]string{
+				compv1alpha1.ComplianceScanLabel: s.Name,
+				compv1alpha1.KubeletConfigLabel:  "",
+			},
+			Annotations: map[string]string{
+				compv1alpha1.CmScanResultAnnotation: "COMPLIANT",
+			},
+		},
+		Data: map[string]string{
+			"exit-code": "0",
+		},
+	})
+
+}
+
+func createFakeAggregatorPod(reconciler ReconcileComplianceScan, s *compv1alpha1.ComplianceScan) {
+	n := getAggregatorPodName(s.Name)
+	reconciler.Client.Create(context.TODO(), &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      n,
+			Namespace: common.GetComplianceOperatorNamespace(),
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodSucceeded,
+		},
+	})
+}
+
 var _ = Describe("Testing compliancescan controller phases", func() {
 
 	var (
 		compliancescaninstance *compv1alpha1.ComplianceScan
+		platformscaninstance   *compv1alpha1.ComplianceScan
 		handler                scanTypeHandler
+		platformHandler        scanTypeHandler
 		reconciler             ReconcileComplianceScan
 		logger                 logr.Logger
 		nodeinstance1          *corev1.Node
@@ -103,7 +139,22 @@ var _ = Describe("Testing compliancescan controller phases", func() {
 				},
 			},
 		}
-		objs = append(objs, compliancescaninstance)
+		platformscaninstance = &compv1alpha1.ComplianceScan{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "platform-scan",
+			},
+			Spec: compv1alpha1.ComplianceScanSpec{
+				ScanType: compv1alpha1.ScanTypePlatform,
+				ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+					RawResultStorage: compv1alpha1.RawResultStorageSettings{
+						PVAccessModes: defaultAccessMode,
+						Size:          compv1alpha1.DefaultRawStorageSize,
+					},
+				},
+			},
+		}
+		results := &compv1alpha1.ComplianceCheckResultList{}
+		objs = append(objs, compliancescaninstance, platformscaninstance)
 
 		// Nodes in the deployment
 		nodeinstance1 = &corev1.Node{
@@ -155,7 +206,7 @@ var _ = Describe("Testing compliancescan controller phases", func() {
 
 		objs = append(objs, nodeinstance1, nodeinstance2, caSecret, serverSecret, clientSecret, ns)
 		scheme := scheme.Scheme
-		scheme.AddKnownTypes(compv1alpha1.SchemeGroupVersion, compliancescaninstance)
+		scheme.AddKnownTypes(compv1alpha1.SchemeGroupVersion, compliancescaninstance, results)
 
 		statusObjs := []runtimeclient.Object{}
 		statusObjs = append(statusObjs, compliancescaninstance)
@@ -175,6 +226,11 @@ var _ = Describe("Testing compliancescan controller phases", func() {
 		handler, err = getScanTypeHandler(&reconciler, compliancescaninstance, logger)
 		Expect(err).To(BeNil())
 		_, err = handler.validate()
+		Expect(err).To(BeNil())
+
+		platformHandler, err = getScanTypeHandler(&reconciler, platformscaninstance, logger)
+		Expect(err).To(BeNil())
+		_, err = platformHandler.validate()
 		Expect(err).To(BeNil())
 	})
 
@@ -420,6 +476,36 @@ var _ = Describe("Testing compliancescan controller phases", func() {
 				Expect(err).To(BeNil())
 				Expect(compliancescaninstance.Status.Phase).To(Equal(compv1alpha1.PhaseAggregating))
 			})
+		})
+	})
+
+	Context("On the AGGREGATING phase", func() {
+		BeforeEach(func() {
+			// Create the pods and the secret for the test
+			createFakeScanPods(reconciler, platformscaninstance.Name, nodeinstance1.Name, nodeinstance2.Name)
+			createFakeRsSecret(reconciler, platformscaninstance.Name)
+			createFakeConfigMapForAggregator(reconciler, platformscaninstance)
+			createFakeAggregatorPod(reconciler, platformscaninstance)
+
+			platformscaninstance.Status.Phase = compv1alpha1.PhaseAggregating
+			err := reconciler.Client.Status().Update(context.TODO(), platformscaninstance)
+			Expect(err).To(BeNil())
+		})
+		It("Should always set check count annotations", func() {
+			result, err := reconciler.phaseAggregatingHandler(platformHandler, logger)
+			scan := &compv1alpha1.ComplianceScan{}
+			key := types.NamespacedName{
+				Name:      platformscaninstance.Name,
+				Namespace: compliancescaninstance.Namespace,
+			}
+			if err = reconciler.Client.Get(context.TODO(), key, scan); err != nil {
+				Fail("failed to get Platform scan instance")
+			}
+			Expect(err).To(BeNil())
+			Expect(result).ToNot(BeNil())
+			Expect(scan.Status.Phase).To(Equal(compv1alpha1.PhaseAggregating))
+			Expect(scan.Spec.ScanType).To(Equal(compv1alpha1.ScanTypePlatform))
+			Expect(scan.Annotations[compv1alpha1.ComplianceCheckCountAnnotation]).To(Equal("0"))
 		})
 	})
 
