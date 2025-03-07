@@ -471,6 +471,55 @@ func (f *Framework) ensureTestNamespaceExists() error {
 
 }
 
+func (f *Framework) WaitForProfileDeprecatedWarning(t *testing.T, scanName string, profileName string) error {
+	polledScan := &compv1alpha1.ComplianceScan{}
+
+	// Wait for profile deprecation warning event
+	err := wait.Poll(RetryInterval, Timeout, func() (bool, error) {
+		getErr := f.Client.Get(context.TODO(), types.NamespacedName{Name: scanName, Namespace: f.OperatorNamespace}, polledScan)
+		if getErr != nil {
+			t.Log(getErr)
+			return false, nil
+		}
+
+		profileEventList, getEventErr := f.KubeClient.CoreV1().Events(f.OperatorNamespace).List(context.TODO(), metav1.ListOptions{
+			FieldSelector: "reason=DeprecatedProfile",
+		})
+		if getEventErr != nil {
+			t.Log(getEventErr)
+			return false, nil
+		}
+
+		tailoredProfileEventList, getEventErr := f.KubeClient.CoreV1().Events(f.OperatorNamespace).List(context.TODO(), metav1.ListOptions{
+			FieldSelector: "reason=DeprecatedTailoredProfile",
+		})
+		if getEventErr != nil {
+			t.Log(getEventErr)
+			return false, nil
+		}
+
+		re := regexp.MustCompile(fmt.Sprintf(".*%s.*", profileName))
+		for _, item := range profileEventList.Items {
+			if item.InvolvedObject.Name == polledScan.Name && re.MatchString(item.Message) {
+				t.Logf("Found ComplianceScan deprecated profile event: %s", item.Message)
+				return true, nil
+			}
+		}
+		for _, item := range tailoredProfileEventList.Items {
+			if item.InvolvedObject.Name == polledScan.Name && re.MatchString(item.Message) {
+				t.Logf("Found ComplianceScan deprecated profile event: %s", item.Message)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("No ComplianceScan event for profile \"%s\" found", profileName)
+		return err
+	}
+	return nil
+}
+
 // waitForProfileBundleStatus will poll until the compliancescan that we're
 // lookingfor reaches a certain status, or until a timeout is reached.
 func (f *Framework) WaitForProfileBundleStatus(name string, status compv1alpha1.DataStreamStatusType) error {
