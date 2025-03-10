@@ -671,6 +671,51 @@ func TestSingleScanTimestamps(t *testing.T) {
 
 }
 
+func TestNonExistentDeprecatedProfile(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+
+	scanName := framework.GetObjNameFromTest(t)
+	testScan := &compv1alpha1.ComplianceScan{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceScanSpec{
+			Profile:      "xccdf_org.ssgproject.content_profile_non_existing_profile",
+			Content:      framework.OcpContentFile,
+			ContentImage: contentImagePath,
+			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+				Debug: true,
+			},
+		},
+	}
+	// use Context's create helper to create the object and add a cleanup function for the new object
+	err := f.Client.Create(context.TODO(), testScan, nil)
+	if err != nil {
+		t.Fatalf("failed to create scan %s: %s", scanName, err)
+	}
+	defer f.Client.Delete(context.TODO(), testScan)
+
+	// The profile deprecation warning is sent out during Pending phase
+	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.AssertScanIsInError(scanName, f.OperatorNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = f.Client.Get(context.TODO(), types.NamespacedName{Name: scanName, Namespace: f.OperatorNamespace}, testScan); err != nil {
+		t.Fatal(err)
+	}
+	if testScan.Status.ErrorMessage != "Could not check whether the Profile used by ComplianceScan is deprecated" {
+		t.Fatal(errors.New("expected error message to be from failed profile deprecation check"))
+	}
+}
+
 func TestScanDeprecatedProfile(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
