@@ -716,45 +716,65 @@ func TestNonExistentDeprecatedProfile(t *testing.T) {
 	}
 }
 
-func TestScanDeprecatedProfile(t *testing.T) {
+func TestScanTailoredProfileIsDeprecated(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
 
-	pbName := framework.GetObjNameFromTest(t)
-	baselineImage := fmt.Sprintf("%s:%s", brokenContentImagePath, "deprecated_profile")
-	pb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
-	if err != nil {
-		t.Fatalf("failed to create ProfileBundle: %s", err)
-	}
-	// This should get cleaned up at the end of the test
-	defer f.Client.Delete(context.TODO(), pb)
-
-	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
-		t.Fatalf("failed waiting for the ProfileBundle to become available: %s", err)
-	}
-
-	scanName := framework.GetObjNameFromTest(t)
-	testScan := &compv1alpha1.ComplianceScan{
+	tpName := "test-tailored-profile-is-deprecated"
+	tp := &compv1alpha1.TailoredProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      scanName,
+			Name:      tpName,
 			Namespace: f.OperatorNamespace,
+			Annotations: map[string]string{
+				compv1alpha1.ProfileStatusAnnotation: "deprecated",
+			},
 		},
-		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile:      "xccdf_org.ssgproject.content_profile_cis-1-4",
-			Content:      framework.OcpContentFile,
-			ContentImage: baselineImage,
-			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
-				Debug: true,
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Extends:     "ocp4-cis",
+			Title:       "TestScanTailoredProfileIsDeprecated",
+			Description: "TestScanTailoredProfileIsDeprecated",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "ocp4-cluster-version-operator-exists",
+					Rationale: "Test tailored profile extends deprecated",
+				},
 			},
 		},
 	}
-	// use Context's create helper to create the object and add a cleanup function for the new object
-	if err = f.Client.Create(context.TODO(), testScan, nil); err != nil {
-		t.Fatalf("failed to create scan %s: %s", scanName, err)
+	err := f.Client.Create(context.TODO(), tp, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	defer f.Client.Delete(context.TODO(), testScan)
+	defer f.Client.Delete(context.TODO(), tp)
 
-	if err = f.WaitForProfileDeprecatedWarning(t, scanName, fmt.Sprintf("%s-cis-1-4", pbName)); err != nil {
+	suiteName := framework.GetObjNameFromTest(t)
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanName := tpName
+	if err = f.WaitForProfileDeprecatedWarning(t, scanName, tpName); err != nil {
 		t.Fatal(err)
 	}
 
