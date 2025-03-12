@@ -1231,7 +1231,7 @@ func (f *Framework) AssertScanIsCompliant(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultCompliant {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultCompliant, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultCompliant)
 	}
 	return nil
 }
@@ -1309,7 +1309,7 @@ func (f *Framework) AssertScanIsNonCompliant(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultNonCompliant {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultNonCompliant, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultNonCompliant)
 	}
 	return nil
 }
@@ -1322,7 +1322,7 @@ func (f *Framework) AssertScanIsNotApplicable(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultNotApplicable {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultNotApplicable, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultNotApplicable)
 	}
 	return nil
 }
@@ -1335,7 +1335,7 @@ func (f *Framework) AssertScanIsInError(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultError {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultError, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultError)
 	}
 	if cs.Status.ErrorMessage == "" {
 		return fmt.Errorf("scan 'errormsg' is empty, but it should be set")
