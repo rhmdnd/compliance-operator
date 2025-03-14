@@ -176,6 +176,28 @@ func (f *Framework) PrintROSADebugInfo(t *testing.T) {
 	}
 }
 
+func (f *Framework) CreateProfileBundle(pbName string, baselineImage string, contentFile string) (*compv1alpha1.ProfileBundle, error) {
+	origPb := &compv1alpha1.ProfileBundle{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pbName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ProfileBundleSpec{
+			ContentImage: baselineImage,
+			ContentFile:  contentFile,
+		},
+	}
+	// Pass nil in as the cleanupOptions since so we don't invoke all the
+	// cleanup function code in Create. Use defer to cleanup the
+	// ProfileBundle at the end of the test, instead of at the end of the
+	// suite.
+	log.Printf("Creating ProfileBundle %s", pbName)
+	if err := f.Client.Create(context.TODO(), origPb, nil); err != nil {
+		return nil, err
+	}
+	return origPb, nil
+}
+
 func (f *Framework) cleanUpProfileBundle(p string) error {
 	pb := &compv1alpha1.ProfileBundle{
 		ObjectMeta: metav1.ObjectMeta{
@@ -447,6 +469,55 @@ func (f *Framework) ensureTestNamespaceExists() error {
 		return nil
 	}
 
+}
+
+func (f *Framework) WaitForProfileDeprecatedWarning(t *testing.T, scanName string, profileName string) error {
+	polledScan := &compv1alpha1.ComplianceScan{}
+
+	// Wait for profile deprecation warning event
+	err := wait.Poll(RetryInterval, Timeout, func() (bool, error) {
+		getErr := f.Client.Get(context.TODO(), types.NamespacedName{Name: scanName, Namespace: f.OperatorNamespace}, polledScan)
+		if getErr != nil {
+			t.Log(getErr)
+			return false, nil
+		}
+
+		profileEventList, getEventErr := f.KubeClient.CoreV1().Events(f.OperatorNamespace).List(context.TODO(), metav1.ListOptions{
+			FieldSelector: "reason=DeprecatedProfile",
+		})
+		if getEventErr != nil {
+			t.Log(getEventErr)
+			return false, nil
+		}
+
+		tailoredProfileEventList, getEventErr := f.KubeClient.CoreV1().Events(f.OperatorNamespace).List(context.TODO(), metav1.ListOptions{
+			FieldSelector: "reason=DeprecatedTailoredProfile",
+		})
+		if getEventErr != nil {
+			t.Log(getEventErr)
+			return false, nil
+		}
+
+		re := regexp.MustCompile(fmt.Sprintf(".*%s.*", profileName))
+		for _, item := range profileEventList.Items {
+			if item.InvolvedObject.Name == polledScan.Name && re.MatchString(item.Message) {
+				t.Logf("Found ComplianceScan deprecated profile event: %s", item.Message)
+				return true, nil
+			}
+		}
+		for _, item := range tailoredProfileEventList.Items {
+			if item.InvolvedObject.Name == polledScan.Name && re.MatchString(item.Message) {
+				t.Logf("Found ComplianceScan deprecated profile event: %s", item.Message)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("No ComplianceScan event for profile \"%s\" found", profileName)
+		return err
+	}
+	return nil
 }
 
 // waitForProfileBundleStatus will poll until the compliancescan that we're
@@ -1160,7 +1231,7 @@ func (f *Framework) AssertScanIsCompliant(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultCompliant {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultCompliant, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultCompliant)
 	}
 	return nil
 }
@@ -1238,7 +1309,7 @@ func (f *Framework) AssertScanIsNonCompliant(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultNonCompliant {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultNonCompliant, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultNonCompliant)
 	}
 	return nil
 }
@@ -1251,7 +1322,7 @@ func (f *Framework) AssertScanIsNotApplicable(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultNotApplicable {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultNotApplicable, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultNotApplicable)
 	}
 	return nil
 }
@@ -1264,7 +1335,7 @@ func (f *Framework) AssertScanIsInError(name, namespace string) error {
 		return err
 	}
 	if cs.Status.Result != compv1alpha1.ResultError {
-		return fmt.Errorf("scan result was %s instead of %s", compv1alpha1.ResultError, cs.Status.Result)
+		return fmt.Errorf("scan result was %s instead of %s", cs.Status.Result, compv1alpha1.ResultError)
 	}
 	if cs.Status.ErrorMessage == "" {
 		return fmt.Errorf("scan 'errormsg' is empty, but it should be set")

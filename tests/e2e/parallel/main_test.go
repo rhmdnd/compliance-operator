@@ -85,21 +85,8 @@ func TestProfileModification(t *testing.T) {
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
 	pbName := framework.GetObjNameFromTest(t)
-	origPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.RhcosContentFile,
-		},
-	}
-	// Pass nil in as the cleanupOptions since so we don't invoke all the
-	// cleanup function code in Create. Use defer to cleanup the
-	// ProfileBundle at the end of the test, instead of at the end of the
-	// suite.
-	if err := f.Client.Create(context.TODO(), origPb, nil); err != nil {
+	origPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.RhcosContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle: %s", err)
 	}
 	// This should get cleaned up at the end of the test
@@ -196,19 +183,10 @@ func TestProfileISTagUpdate(t *testing.T) {
 	}
 	defer f.Client.Delete(context.TODO(), s)
 
-	pb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: fmt.Sprintf("%s:%s", iSName, "latest"),
-			ContentFile:  framework.RhcosContentFile,
-		},
-	}
-
-	if err := f.Client.Create(context.TODO(), pb, nil); err != nil {
-		t.Fatalf("failed to create ProfileBundle %s", pbName)
+	baselineImage = fmt.Sprintf("%s:%s", iSName, "latest")
+	pb, err := f.CreateProfileBundle(pbName, baselineImage, framework.RhcosContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
 	}
 	defer f.Client.Delete(context.TODO(), pb)
 
@@ -305,18 +283,9 @@ func TestProfileISTagOtherNs(t *testing.T) {
 	}
 	defer f.Client.Delete(context.TODO(), stream)
 
-	pb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: fmt.Sprintf("%s/%s:%s", otherNs, iSName, "latest"),
-			ContentFile:  framework.RhcosContentFile,
-		},
-	}
-
-	if err := f.Client.Create(context.TODO(), pb, nil); err != nil {
+	baselineImage = fmt.Sprintf("%s/%s:%s", otherNs, iSName, "latest")
+	pb, err := f.CreateProfileBundle(pbName, baselineImage, framework.RhcosContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle %s: %s", pbName, err)
 	}
 	defer f.Client.Delete(context.TODO(), pb)
@@ -397,19 +366,8 @@ func TestInvalidBundleWithUnexistentRef(t *testing.T) {
 	)
 
 	pbName := framework.GetObjNameFromTest(t)
-
-	pb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: unexistentImage,
-			ContentFile:  framework.RhcosContentFile,
-		},
-	}
-
-	if err := f.Client.Create(context.TODO(), pb, nil); err != nil {
+	pb, err := f.CreateProfileBundle(pbName, unexistentImage, framework.RhcosContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle %s: %s", pbName, err)
 	}
 	defer f.Client.Delete(context.TODO(), pb)
@@ -428,18 +386,8 @@ func TestInvalidBundleWithNoTag(t *testing.T) {
 
 	pbName := framework.GetObjNameFromTest(t)
 
-	pb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: noTagImage,
-			ContentFile:  framework.RhcosContentFile,
-		},
-	}
-
-	if err := f.Client.Create(context.TODO(), pb, nil); err != nil {
+	pb, err := f.CreateProfileBundle(pbName, noTagImage, framework.RhcosContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle %s: %s", pbName, err)
 	}
 	defer f.Client.Delete(context.TODO(), pb)
@@ -482,18 +430,8 @@ func TestParsingErrorRestartsParserInitContainer(t *testing.T) {
 
 	pbName := framework.GetObjNameFromTest(t)
 
-	pb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: badImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-
-	if err := f.Client.Create(context.TODO(), pb, nil); err != nil {
+	pb, err := f.CreateProfileBundle(pbName, badImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle %s: %s", pbName, err)
 	}
 	defer f.Client.Delete(context.TODO(), pb)
@@ -619,9 +557,10 @@ func TestSingleScanSucceeds(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -685,9 +624,10 @@ func TestSingleScanTimestamps(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -729,6 +669,118 @@ func TestSingleScanTimestamps(t *testing.T) {
 		t.Fatal(err)
 	}
 
+}
+
+func TestNonExistentDeprecatedProfile(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+
+	scanName := framework.GetObjNameFromTest(t)
+	testScan := &compv1alpha1.ComplianceScan{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceScanSpec{
+			Profile:      "xccdf_org.ssgproject.content_profile_non_existing_profile",
+			Content:      framework.OcpContentFile,
+			ContentImage: contentImagePath,
+			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+				Debug: true,
+			},
+		},
+	}
+	// use Context's create helper to create the object and add a cleanup function for the new object
+	err := f.Client.Create(context.TODO(), testScan, nil)
+	if err != nil {
+		t.Fatalf("failed to create scan %s: %s", scanName, err)
+	}
+	defer f.Client.Delete(context.TODO(), testScan)
+
+	// The profile deprecation warning is sent out during Pending phase
+	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.AssertScanIsInError(scanName, f.OperatorNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = f.Client.Get(context.TODO(), types.NamespacedName{Name: scanName, Namespace: f.OperatorNamespace}, testScan); err != nil {
+		t.Fatal(err)
+	}
+	if testScan.Status.ErrorMessage != "Could not check whether the Profile used by ComplianceScan is deprecated" {
+		t.Fatal(errors.New("expected error message to be from failed profile deprecation check"))
+	}
+}
+
+func TestScanTailoredProfileIsDeprecated(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+
+	tpName := "test-tailored-profile-is-deprecated"
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tpName,
+			Namespace: f.OperatorNamespace,
+			Annotations: map[string]string{
+				compv1alpha1.ProfileStatusAnnotation: "deprecated",
+			},
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Extends:     "ocp4-cis",
+			Title:       "TestScanTailoredProfileIsDeprecated",
+			Description: "TestScanTailoredProfileIsDeprecated",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "ocp4-cluster-version-operator-exists",
+					Rationale: "Test tailored profile extends deprecated",
+				},
+			},
+		},
+	}
+	err := f.Client.Create(context.TODO(), tp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+
+	suiteName := framework.GetObjNameFromTest(t)
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanName := tpName
+	if err = f.WaitForProfileDeprecatedWarning(t, scanName, tpName); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestScanProducesRemediations(t *testing.T) {
@@ -816,9 +868,10 @@ func TestSingleScanWithStorageSucceeds(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				RawResultStorage: compv1alpha1.RawResultStorageSettings{
 					Size: "2Gi",
@@ -849,9 +902,22 @@ func TestSingleScanWithStorageSucceeds(t *testing.T) {
 }
 
 func TestScanWithUnexistentResourceFails(t *testing.T) {
+	// This tests scan behavior when Kubernetes resource doesn't exist
+	// The data stream, content image and profile all exist
 	t.Parallel()
 	f := framework.Global
+	pbName := framework.GetObjNameFromTest(t)
 	var unexistentImage = fmt.Sprintf("%s:%s", brokenContentImagePath, "unexistent_resource")
+	origPb, err := f.CreateProfileBundle(pbName, unexistentImage, framework.UnexistentResourceContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
+	}
+	// This should get cleaned up at the end of the test
+	defer f.Client.Delete(context.TODO(), origPb)
+	if err = f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatalf("failed waiting for the ProfileBundle to become available: %s", err)
+	}
+
 	scanName := framework.GetObjNameFromTest(t)
 	testScan := &compv1alpha1.ComplianceScan{
 		ObjectMeta: metav1.ObjectMeta{
@@ -867,7 +933,7 @@ func TestScanWithUnexistentResourceFails(t *testing.T) {
 		},
 	}
 	// use Context's create helper to create the object and add a cleanup function for the new object
-	err := f.Client.Create(context.TODO(), testScan, nil)
+	err = f.Client.Create(context.TODO(), testScan, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -919,9 +985,10 @@ func TestScanStorageOutOfLimitRangeFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				RawResultStorage: compv1alpha1.RawResultStorageSettings{
 					Size: "6Gi",
@@ -947,61 +1014,76 @@ func TestScanStorageOutOfLimitRangeFails(t *testing.T) {
 func TestSingleTailoredScanSucceeds(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
-	scanName := framework.GetObjNameFromTest(t)
-	tailoringCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-single-tailored-scan-succeeds-cm",
-			Namespace: f.OperatorNamespace,
-		},
-		Data: map[string]string{
-			"tailoring.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_compliance.openshift.io_tailoring_test-tailoredprofile">
-<xccdf-1.2:benchmark href="/content/ssg-rhcos4-ds.xml"></xccdf-1.2:benchmark>
-<xccdf-1.2:version time="2020-04-28T07:04:13Z">1</xccdf-1.2:version>
-<xccdf-1.2:Profile id="xccdf_compliance.openshift.io_profile_test-tailoredprofile">
-<xccdf-1.2:title>Test Tailored Profile</xccdf-1.2:title>
-<xccdf-1.2:description>Test Tailored Profile</xccdf-1.2:description>
-<xccdf-1.2:select idref="xccdf_org.ssgproject.content_rule_no_netrc_files" selected="true"></xccdf-1.2:select>
-</xccdf-1.2:Profile>
-</xccdf-1.2:Tailoring>`,
-		},
-	}
 
-	err := f.Client.Create(context.TODO(), tailoringCM, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Client.Delete(context.TODO(), tailoringCM)
-
-	exampleComplianceScan := &compv1alpha1.ComplianceScan{
+	tpName := "test-tailoredprofile"
+	tp := &compv1alpha1.TailoredProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      scanName,
+			Name:      tpName,
 			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_compliance.openshift.io_profile_test-tailoredprofile",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
-			TailoringConfigMap: &compv1alpha1.TailoringConfigMapRef{
-				Name: tailoringCM.Name,
+			Annotations: map[string]string{
+				compv1alpha1.ProductTypeAnnotation: "Node",
 			},
-			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
-				Debug: true,
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "TestSingleTailoredScanSucceeds",
+			Description: "TestSingleTailoredScanSucceeds",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "rhcos4-no-netrc-files",
+					Rationale: "Test for platform profile tailoring",
+				},
 			},
 		},
 	}
-	// use Context's create helper to create the object and add a cleanup function for the new object
-	err = f.Client.Create(context.TODO(), exampleComplianceScan, nil)
+	err := f.Client.Create(context.TODO(), tp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Client.Delete(context.TODO(), exampleComplianceScan)
-	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone)
+	defer f.Client.Delete(context.TODO(), tp)
+
+	err = f.WaitForTailoredProfileStatus(f.OperatorNamespace, tpName, compv1alpha1.TailoredProfileStateReady)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = f.AssertScanIsCompliant(scanName, f.OperatorNamespace)
+
+	suiteName := framework.GetObjNameFromTest(t)
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanNameMaster := fmt.Sprintf("%s-master", tpName)
+	scanNameWorker := fmt.Sprintf("%s-worker", tpName)
+	if err = f.WaitForScanStatus(f.OperatorNamespace, scanNameMaster, compv1alpha1.PhaseDone); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.AssertScanIsCompliant(scanNameMaster, f.OperatorNamespace); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.WaitForScanStatus(f.OperatorNamespace, scanNameWorker, compv1alpha1.PhaseDone); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.AssertScanIsCompliant(scanNameWorker, f.OperatorNamespace); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1009,62 +1091,66 @@ func TestSingleTailoredScanSucceeds(t *testing.T) {
 func TestSingleTailoredPlatformScanSucceeds(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
-	scanName := framework.GetObjNameFromTest(t)
-	tailoringCM := &corev1.ConfigMap{
+
+	tpName := "test-tailoredplatformprofile"
+	tp := &compv1alpha1.TailoredProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-tailored-platform-scan-succeeds-cm",
+			Name:      tpName,
 			Namespace: f.OperatorNamespace,
 		},
-		Data: map[string]string{
-			"tailoring.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_compliance.openshift.io_tailoring_tailoredplatformprofile">
-<xccdf-1.2:benchmark href="/content/ssg-ocp4-ds.xml"></xccdf-1.2:benchmark>
-<xccdf-1.2:version time="2020-11-27T11:58:27Z">1</xccdf-1.2:version>
-<xccdf-1.2:Profile id="xccdf_compliance.openshift.io_profile_test-tailoredplatformprofile">
-<xccdf-1.2:title override="true">Test Tailored Platform profile</xccdf-1.2:title>
-<xccdf-1.2:description override="true">This is a test for platform profile tailoring</xccdf-1.2:description>
-<xccdf-1.2:select idref="xccdf_org.ssgproject.content_rule_cluster_version_operator_exists" selected="true"></xccdf-1.2:select>
-</xccdf-1.2:Profile>
-</xccdf-1.2:Tailoring>`,
-		},
-	}
-
-	err := f.Client.Create(context.TODO(), tailoringCM, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Client.Delete(context.TODO(), tailoringCM)
-
-	exampleComplianceScan := &compv1alpha1.ComplianceScan{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      scanName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ComplianceScanSpec{
-			ScanType:     compv1alpha1.ScanTypePlatform,
-			ContentImage: contentImagePath,
-			Profile:      "xccdf_compliance.openshift.io_profile_test-tailoredplatformprofile",
-			Rule:         "xccdf_org.ssgproject.content_rule_cluster_version_operator_exists",
-			Content:      framework.OcpContentFile,
-			TailoringConfigMap: &compv1alpha1.TailoringConfigMapRef{
-				Name: tailoringCM.Name,
-			},
-			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
-				Debug: true,
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "TestSingleTailoredPlatformScanSucceeds",
+			Description: "TestSingleTailoredPlatformScanSucceeds",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "ocp4-cluster-version-operator-exists",
+					Rationale: "Test for platform profile tailoring",
+				},
 			},
 		},
 	}
-	// use Context's create helper to create the object and add a cleanup function for the new object
-	err = f.Client.Create(context.TODO(), exampleComplianceScan, nil)
+	err := f.Client.Create(context.TODO(), tp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Client.Delete(context.TODO(), exampleComplianceScan)
+	defer f.Client.Delete(context.TODO(), tp)
+
+	err = f.WaitForTailoredProfileStatus(f.OperatorNamespace, tpName, compv1alpha1.TailoredProfileStateReady)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	suiteName := framework.GetObjNameFromTest(t)
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanName := tpName
 	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	err = f.AssertScanIsCompliant(scanName, f.OperatorNamespace)
 	if err != nil {
 		t.Fatal(err)
@@ -1085,6 +1171,7 @@ func TestScanWithNodeSelectorFiltersCorrectly(t *testing.T) {
 		Spec: compv1alpha1.ComplianceScanSpec{
 			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
 			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
 			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			NodeSelector: selectWorkers,
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
@@ -1135,6 +1222,7 @@ func TestScanWithNodeSelectorNoMatches(t *testing.T) {
 		Spec: compv1alpha1.ComplianceScanSpec{
 			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
 			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
 			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			NodeSelector: selectNone,
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
@@ -1169,9 +1257,10 @@ func TestScanWithInvalidScanTypeFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile:  "xccdf_org.ssgproject.content_profile_moderate",
-			Content:  "ssg-ocp4-non-existent.xml",
-			ScanType: "BadScanType",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      "ssg-ocp4-non-existent.xml",
+			ContentImage: contentImagePath,
+			ScanType:     "BadScanType",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -1194,6 +1283,7 @@ func TestScanWithInvalidScanTypeFails(t *testing.T) {
 }
 
 func TestScanWithInvalidContentFails(t *testing.T) {
+	// This test logs a "Could not get Profile" error, but that is expected
 	t.Parallel()
 	f := framework.Global
 	scanName := "test-scan-w-invalid-content"
@@ -1203,8 +1293,9 @@ func TestScanWithInvalidContentFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: "ssg-ocp4-non-existent.xml",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      "ssg-ocp4-non-existent.xml",
+			ContentImage: contentImagePath,
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -1236,8 +1327,9 @@ func TestScanWithInvalidProfileFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_coreos-unexistent",
-			Content: framework.RhcosContentFile,
+			Profile:      "xccdf_org.ssgproject.content_profile_coreos-unexistent",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -1297,9 +1389,10 @@ func TestMalformedTailoredScanFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_compliance.openshift.io_profile_test-tailoredprofile",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_compliance.openshift.io_profile_test-tailoredprofile",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -1334,9 +1427,10 @@ func TestScanWithEmptyTailoringCMNameFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			TailoringConfigMap: &compv1alpha1.TailoringConfigMapRef{
 				Name: "",
 			},
@@ -1363,15 +1457,40 @@ func TestScanWithMissingTailoringCMFailsAndRecovers(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
 	scanName := "test-scan-w-missing-tailoring-cm"
+
+	tpName := "test-tailoredprofile-missing-cm"
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tpName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "TestScanWithMissingTailoringCMFailsAndRecovers",
+			Description: "TestScanWithMissingTailoringCMFailsAndRecovers",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "rhcos4-no-netrc-files",
+					Rationale: "Test for platform profile tailoring missing CM fails and recovers",
+				},
+			},
+		},
+	}
+	createTPErr := f.Client.Create(context.TODO(), tp, nil)
+	if createTPErr != nil {
+		t.Fatal(createTPErr)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+
 	exampleComplianceScan := &compv1alpha1.ComplianceScan{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scanName,
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_compliance.openshift.io_profile_test-tailoredprofile",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_compliance.openshift.io_profile_test-tailoredprofile-missing-cm",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -1412,10 +1531,10 @@ func TestScanWithMissingTailoringCMFailsAndRecovers(t *testing.T) {
 		},
 		Data: map[string]string{
 			"tailoring.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_compliance.openshift.io_tailoring_test-tailoredprofile">
+<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_compliance.openshift.io_tailoring_test-tailoredprofile-missing-cm">
 <xccdf-1.2:benchmark href="/content/ssg-rhcos4-ds.xml"></xccdf-1.2:benchmark>
 <xccdf-1.2:version time="2020-04-28T07:04:13Z">1</xccdf-1.2:version>
-<xccdf-1.2:Profile id="xccdf_compliance.openshift.io_profile_test-tailoredprofile">
+<xccdf-1.2:Profile id="xccdf_compliance.openshift.io_profile_test-tailoredprofile-missing-cm">
 <xccdf-1.2:title>Test Tailored Profile</xccdf-1.2:title>
 <xccdf-1.2:description>Test Tailored Profile</xccdf-1.2:description>
 <xccdf-1.2:select idref="xccdf_org.ssgproject.content_rule_no_netrc_files" selected="true"></xccdf-1.2:select>
@@ -1449,9 +1568,10 @@ func TestMissingPodInRunningState(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			ContentImage: contentImagePath,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				Debug: true,
 			},
@@ -2075,6 +2195,19 @@ func TestScheduledSuiteUpdate(t *testing.T) {
 func TestSuiteWithContentThatDoesNotMatch(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
+
+	pbName := framework.GetObjNameFromTest(t)
+	baselineImage := fmt.Sprintf("%s:%s", brokenContentImagePath, "broken_os_detection")
+	origPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.RhcosContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
+	}
+	// This should get cleaned up at the end of the test
+	defer f.Client.Delete(context.TODO(), origPb)
+	if err = f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatalf("failed waiting for the ProfileBundle to become available: %s", err)
+	}
+
 	suiteName := "test-suite-with-non-matching-content"
 	testSuite := &compv1alpha1.ComplianceSuite{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2089,7 +2222,7 @@ func TestSuiteWithContentThatDoesNotMatch(t *testing.T) {
 				{
 					Name: fmt.Sprintf("%s-workers-scan", suiteName),
 					ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
-						ContentImage: fmt.Sprintf("%s:%s", brokenContentImagePath, "broken_os_detection"),
+						ContentImage: baselineImage,
 						Profile:      "xccdf_org.ssgproject.content_profile_moderate",
 						Content:      "ssg-rhcos4-ds.xml",
 						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
@@ -2105,7 +2238,7 @@ func TestSuiteWithContentThatDoesNotMatch(t *testing.T) {
 		},
 	}
 	// use Context's create helper to create the object and add a cleanup function for the new object
-	err := f.Client.Create(context.TODO(), testSuite, nil)
+	err = f.Client.Create(context.TODO(), testSuite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2252,21 +2385,8 @@ func TestScanSettingBindingTailoringManyEnablingRulePass(t *testing.T) {
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
 	pbName := framework.GetObjNameFromTest(t)
-	origPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-	// Pass nil in as the cleanupOptions since so we don't invoke all the
-	// cleanup function code in Create. Use defer to cleanup the
-	// ProfileBundle at the end of the test, instead of at the end of the
-	// suite.
-	if err := f.Client.Create(context.TODO(), origPb, nil); err != nil {
+	origPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatalf("failed to create ProfileBundle: %s", err)
 	}
 	// This should get cleaned up at the end of the test
@@ -2758,17 +2878,8 @@ func TestManualRulesTailoredProfile(t *testing.T) {
 	pbName := framework.GetObjNameFromTest(t)
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
-	ocpPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-	if err := f.Client.Create(context.TODO(), ocpPb, nil); err != nil {
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Client.Delete(context.TODO(), ocpPb)
@@ -2882,17 +2993,8 @@ func TestHideRule(t *testing.T) {
 	pbName := framework.GetObjNameFromTest(t)
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
-	ocpPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-	if err := f.Client.Create(context.TODO(), ocpPb, nil); err != nil {
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Client.Delete(context.TODO(), ocpPb)

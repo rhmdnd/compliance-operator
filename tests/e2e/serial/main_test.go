@@ -79,9 +79,10 @@ func TestScanStorageOutOfQuotaRangeFails(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.ComplianceScanSpec{
-			Profile: "xccdf_org.ssgproject.content_profile_moderate",
-			Content: framework.RhcosContentFile,
-			Rule:    "xccdf_org.ssgproject.content_rule_no_netrc_files",
+			ContentImage: contentImagePath,
+			Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+			Content:      framework.RhcosContentFile,
+			Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
 			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 				RawResultStorage: compv1alpha1.RawResultStorageSettings{
 					Size: "6Gi",
@@ -1228,6 +1229,27 @@ func TestUpdateRemediation(t *testing.T) {
 		modImage  = fmt.Sprintf("%s:%s", brokenContentImagePath, "rem_mod_change")
 	)
 
+	pbName := framework.GetObjNameFromTest(t)
+	rhcosPb, err := f.CreateProfileBundle(pbName, origImage, framework.RhcosContentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), rhcosPb)
+
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatal(err)
+	}
+
+	pbNameMod := fmt.Sprintf("%s-%s", pbName, "mod")
+	rhcosPbMod, err := f.CreateProfileBundle(pbNameMod, modImage, framework.RhcosContentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), rhcosPbMod)
+	if err := f.WaitForProfileBundleStatus(pbNameMod, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatal(err)
+	}
+
 	origSuite := &compv1alpha1.ComplianceSuite{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      origSuiteName,
@@ -1255,7 +1277,7 @@ func TestUpdateRemediation(t *testing.T) {
 		},
 	}
 
-	err := f.Client.Create(context.TODO(), origSuite, nil)
+	err = f.Client.Create(context.TODO(), origSuite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1416,17 +1438,8 @@ func TestVariableTemplate(t *testing.T) {
 	pbName := framework.GetObjNameFromTest(t)
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
-	ocpPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-	if err := f.Client.Create(context.TODO(), ocpPb, nil); err != nil {
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Client.Delete(context.TODO(), ocpPb)
@@ -1561,17 +1574,8 @@ func TestKubeletConfigRemediation(t *testing.T) {
 	pbName := framework.GetObjNameFromTest(t)
 	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
-	ocpPb := &compv1alpha1.ProfileBundle{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pbName,
-			Namespace: f.OperatorNamespace,
-		},
-		Spec: compv1alpha1.ProfileBundleSpec{
-			ContentImage: baselineImage,
-			ContentFile:  framework.OcpContentFile,
-		},
-	}
-	if err := f.Client.Create(context.TODO(), ocpPb, nil); err != nil {
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Client.Delete(context.TODO(), ocpPb)
@@ -1637,7 +1641,7 @@ func TestKubeletConfigRemediation(t *testing.T) {
 		},
 	}
 
-	err := f.Client.Create(context.TODO(), ssb, nil)
+	err = f.Client.Create(context.TODO(), ssb, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2034,6 +2038,128 @@ func TestSuspendScanSettingDoesNotCreateScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.AssertScanSettingBindingConditionIsReady(bindingName, f.OperatorNamespace); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScanDeprecatedProfile(t *testing.T) {
+	f := framework.Global
+
+	pbName := framework.GetObjNameFromTest(t)
+	baselineImage := fmt.Sprintf("%s:%s", brokenContentImagePath, "deprecated_profile")
+	pb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
+	}
+	// This should get cleaned up at the end of the test
+	defer f.Client.Delete(context.TODO(), pb)
+
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatalf("failed waiting for the ProfileBundle to become available: %s", err)
+	}
+
+	scanName := framework.GetObjNameFromTest(t)
+	testScan := &compv1alpha1.ComplianceScan{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceScanSpec{
+			Profile:      "xccdf_org.ssgproject.content_profile_cis-1-4",
+			Content:      framework.OcpContentFile,
+			ContentImage: baselineImage,
+			ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+				Debug: true,
+			},
+		},
+	}
+	// use Context's create helper to create the object and add a cleanup function for the new object
+	if err = f.Client.Create(context.TODO(), testScan, nil); err != nil {
+		t.Fatalf("failed to create scan %s: %s", scanName, err)
+	}
+	defer f.Client.Delete(context.TODO(), testScan)
+
+	if err = f.WaitForProfileDeprecatedWarning(t, scanName, fmt.Sprintf("%s-cis-1-4", pbName)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScanTailoredProfileExtendsDeprecated(t *testing.T) {
+	f := framework.Global
+
+	pbName := framework.GetObjNameFromTest(t)
+	baselineImage := fmt.Sprintf("%s:%s", brokenContentImagePath, "deprecated_profile")
+	pb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
+	}
+	// This should get cleaned up at the end of the test
+	defer f.Client.Delete(context.TODO(), pb)
+
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatalf("failed waiting for the ProfileBundle to become available: %s", err)
+	}
+
+	tpName := "test-tailored-profile-extends-deprecated"
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tpName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Extends:     "ocp4-cis-1-4",
+			Title:       "TestScanTailoredProfileExtendsDeprecated",
+			Description: "TestScanTailoredProfileExtendsDeprecated",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "ocp4-cluster-version-operator-exists",
+					Rationale: "Test tailored profile extends deprecated",
+				},
+			},
+		},
+	}
+	createTPErr := f.Client.Create(context.TODO(), tp, nil)
+	if createTPErr != nil {
+		t.Fatal(createTPErr)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+
+	suiteName := framework.GetObjNameFromTest(t)
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanName := tpName
+	if err = f.WaitForProfileDeprecatedWarning(t, scanName, tpName); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone); err != nil {
 		t.Fatal(err)
 	}
 }
