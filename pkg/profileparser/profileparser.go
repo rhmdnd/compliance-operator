@@ -840,7 +840,7 @@ func newStandardParser() *referenceParser {
 	if crherr != nil {
 		log.Error(crherr, "Could not register CIS Red Hat Linux reference parser") // not much we can do here..
 	}
-	nciperr := p.registerStandard("NERC-CIP", `^https://www\.nerc\.com/pa/Stand/Standard%20Purpose%20Statement%20DL/US_Standard_One-Stop-Shop\.xlsx$`)
+	nciperr := p.registerStandard("NERC-CIP", `^https://www\.nerc\.com/pa/Stand/AlignRep/One%20Stop%20Shop\.xlsx$`)
 	if nciperr != nil {
 		log.Error(nciperr, "Could not register NERC-CIP reference parser") // not much we can do here..
 	}
