@@ -26,6 +26,10 @@ spec:
     value: quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-bundle-dev:{{revision}}
   - name: dockerfile
     value: bundle.openshift.Dockerfile
+  - name: hermetic
+    value: "true"
+  - name: prefetch-input
+    value: '{"type": "gomod", "path": "."}'
   - name: build-source-image
     value: "true"
   pipelineSpec:
@@ -181,6 +185,8 @@ spec:
         value: $(params.output-image).prefetch
       - name: ociArtifactExpiresAfter
         value: $(params.image-expires-after)
+      - name: dev-package-managers
+        value: "true"
       runAfter:
       - clone-repository
       taskRef:
