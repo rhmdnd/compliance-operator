@@ -17,3 +17,5 @@ LABEL \
 RUN microdnf -y update glibc
 RUN microdnf -y install openscap openscap-scanner
 RUN microdnf clean all
+
+COPY ./LICENSE /licenses/LICENSE

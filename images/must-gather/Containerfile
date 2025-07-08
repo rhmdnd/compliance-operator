@@ -19,6 +19,7 @@ RUN microdnf -y install openshift-clients jq tar rsync
 
 WORKDIR /go/src/github.com/ComplianceAsCode/compliance-operator
 
+COPY ./LICENSE /licenses/LICENSE
 COPY ./utils/must-gather/gather* /usr/bin/
 COPY ./utils/must-gather/fetch-raw-results-pod-template.yaml /usr/share/
 
