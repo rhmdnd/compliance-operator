@@ -33,6 +33,7 @@ ENV OPERATOR_BIN=/usr/local/bin/compliance-operator \
     USER_NAME=compliance-operator \
     USER_UID=1001
 
+COPY --from=builder /go/src/github.com/ComplianceAsCode/compliance-operator/LICENSE /licenses/LICENSE
 COPY --from=builder /go/src/github.com/ComplianceAsCode/compliance-operator/build/_output/bin/compliance-operator ${OPERATOR_BIN}
 COPY --from=builder /go/src/github.com/ComplianceAsCode/compliance-operator/build/bin/* /usr/local/bin
 # This is required for the bundle build.
