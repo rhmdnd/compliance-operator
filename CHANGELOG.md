@@ -32,6 +32,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 -
 
 
+## [1.7.1] - 2025-07-15
+
+Refer to https://github.com/ComplianceAsCode/compliance-operator/releases
+
+
 ## [1.7.0] - 2025-04-04
 
 Refer to https://github.com/ComplianceAsCode/compliance-operator/releases
