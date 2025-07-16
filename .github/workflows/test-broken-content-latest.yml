@@ -1,5 +1,7 @@
 on:
   push:
+    branches:
+      - master
     paths:
       - "images/testcontent/**"
       - ".github/workflows/test-broken-content-latest.yml"
