@@ -68,7 +68,7 @@ TAG?=$(DEFAULT_TAG)
 OPENSCAP_NAME=openscap-ocp
 DEFAULT_OPENSCAP_TAG=latest
 OPENSCAP_TAG?=$(DEFAULT_OPENSCAP_TAG)
-OPENSCAP_DOCKER_CONTEXT=./images/openscap
+OPENSCAP_DOCKER_FILE=./images/openscap/Containerfile
 DEFAULT_OPENSCAP_IMAGE=$(DEFAULT_REPO)/$(OPENSCAP_NAME):$(DEFAULT_OPENSCAP_TAG)
 OPENSCAP_IMAGE?=$(DEFAULT_OPENSCAP_IMAGE)
 
@@ -460,7 +460,7 @@ bundle-image: bundle ## Build the bundle image.
 
 .PHONY: openscap-image
 openscap-image:
-	$(RUNTIME) $(RUNTIME_BUILD_CMD) $(RUNTIME_BUILD_OPTS) --no-cache -t $(OPENSCAP_IMAGE) $(OPENSCAP_DOCKER_CONTEXT)
+	$(RUNTIME) $(RUNTIME_BUILD_CMD) $(RUNTIME_BUILD_OPTS) --no-cache -t $(OPENSCAP_IMAGE) -f $(OPENSCAP_DOCKER_FILE) .
 
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
 # This recipe invokes 'opm render' to build a file-based catalog.
