@@ -573,6 +573,62 @@ func TestSingleScanSucceeds(t *testing.T) {
 	}
 	defer f.Client.Delete(context.TODO(), testScan)
 
+	// Verify scanner container security capabilities during running phase
+	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseRunning)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert scanner container has correct capabilities (drops all, only has CAP_SYS_CHROOT)
+	pods, err := f.GetPodsForScan(scanName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pods) < 1 {
+		t.Fatal("No scanner pods found for the scan")
+	}
+
+	// Find the scanner container and verify its capabilities
+	found := false
+	for _, pod := range pods {
+		for _, container := range pod.Spec.Containers {
+			if container.Name == "scanner" {
+				found = true
+				if container.SecurityContext == nil {
+					t.Fatal("Scanner container has no security context")
+				}
+				if container.SecurityContext.Capabilities == nil {
+					t.Fatal("Scanner container has no capabilities configuration")
+				}
+
+				// Verify privileged mode is false
+				if container.SecurityContext.Privileged != nil && *container.SecurityContext.Privileged {
+					t.Fatal("Expected scanner container to run in non-privileged mode")
+				}
+
+				// Verify all capabilities are dropped
+				droppedCaps := container.SecurityContext.Capabilities.Drop
+				if len(droppedCaps) != 1 || string(droppedCaps[0]) != "ALL" {
+					t.Fatalf("Expected scanner container to drop ALL capabilities, got: %v", droppedCaps)
+				}
+
+				// Verify only CAP_SYS_CHROOT is added
+				addedCaps := container.SecurityContext.Capabilities.Add
+				if len(addedCaps) != 1 || string(addedCaps[0]) != "CAP_SYS_CHROOT" {
+					t.Fatalf("Expected scanner container to only have CAP_SYS_CHROOT capability, got: %v", addedCaps)
+				}
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("Scanner container not found in any pod")
+	}
+
 	err = f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone)
 	if err != nil {
 		t.Fatal(err)
