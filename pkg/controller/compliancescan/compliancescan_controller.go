@@ -436,7 +436,7 @@ func (r *ReconcileComplianceScan) phaseLaunchingHandler(h scanTypeHandler, logge
 		return reconcile.Result{}, err
 	}
 
-	if !scan.Spec.RawResultStorage.Disabled {
+	if scan.Spec.RawResultStorage.Enabled {
 		if err = r.handleResultServerSecret(scan, logger); err != nil {
 			logger.Error(err, "Cannot create result server cert secret")
 			return reconcile.Result{}, err
@@ -883,7 +883,7 @@ func (r *ReconcileComplianceScan) phaseDoneHandler(h scanTypeHandler, instance *
 		}
 	} else {
 		// If we're done with the scan but we're not cleaning up just yet.
-		if !instance.Spec.RawResultStorage.Disabled {
+		if instance.Spec.RawResultStorage.Enabled {
 			// scale down resultserver so it's not still listening for requests.
 			if err := r.scaleDownResultServer(instance, logger); err != nil {
 				logger.Error(err, "Cannot scale down result server")

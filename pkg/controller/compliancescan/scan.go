@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -179,7 +180,7 @@ func newScanPodForNode(scanInstance *compv1alpha1.ComplianceScan, node *corev1.N
 						"--tls-client-cert=/etc/pki/tls/tls.crt",
 						"--tls-client-key=/etc/pki/tls/tls.key",
 						"--tls-ca=/etc/pki/tls/ca.crt",
-						"--disable-raw-upload=" + getDisableRawResultUploadValue(scanInstance),
+						"--enable-raw-upload=" + strconv.FormatBool(scanInstance.Spec.RawResultStorage.Enabled),
 					},
 					ImagePullPolicy: corev1.PullAlways,
 					SecurityContext: &corev1.SecurityContext{
@@ -441,7 +442,7 @@ func (r *ReconcileComplianceScan) newPlatformScanPod(scanInstance *compv1alpha1.
 						"--tls-client-cert=/etc/pki/tls/tls.crt",
 						"--tls-client-key=/etc/pki/tls/tls.key",
 						"--tls-ca=/etc/pki/tls/ca.crt",
-						"--disable-raw-upload=" + getDisableRawResultUploadValue(scanInstance),
+						"--enable-raw-upload=" + strconv.FormatBool(scanInstance.Spec.RawResultStorage.Enabled),
 					},
 					ImagePullPolicy: corev1.PullAlways,
 					SecurityContext: &corev1.SecurityContext{

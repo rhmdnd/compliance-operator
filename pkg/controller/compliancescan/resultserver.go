@@ -283,42 +283,31 @@ func getResultServerURI(instance *compv1alpha1.ComplianceScan) string {
 	return "https://" + getResultServerName(instance) + fmt.Sprintf(":%d/", ResultServerPort)
 }
 
-func getDisableRawResultUploadValue(instance *compv1alpha1.ComplianceScan) string {
-	if instance.Spec.RawResultStorage.Disabled {
-		return "true"
-	} else {
-		return "false"
-	}
-}
-
 func getLogCollectorVolumeMounts(instance *compv1alpha1.ComplianceScan) []corev1.VolumeMount {
-	if instance.Spec.RawResultStorage.Disabled {
-		return []corev1.VolumeMount{
-			{
-				Name:      "report-dir",
-				MountPath: "/reports",
-				ReadOnly:  true,
-			},
-		}
-	} else {
-		return []corev1.VolumeMount{
-			{
-				Name:      "report-dir",
-				MountPath: "/reports",
-			},
+	m := []corev1.VolumeMount{
+		{
+			Name:      "report-dir",
+			MountPath: "/reports",
+			ReadOnly:  true,
+		},
+	}
+	if instance.Spec.RawResultStorage.Enabled {
+		p := []corev1.VolumeMount{
 			{
 				Name:      "tls",
 				MountPath: "/etc/pki/tls",
 				ReadOnly:  true,
 			},
 		}
-	}
 
+		m = append(m, p...)
+	}
+	return m
 }
 
 func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev1.Volume {
 	mode := int32(0755)
-	volumeList := []corev1.Volume{
+	volumesList := []corev1.Volume{
 		{
 			Name: "report-dir",
 			VolumeSource: corev1.VolumeSource{
@@ -355,20 +344,18 @@ func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Disabled {
-		return volumeList
-	} else {
-		volumeList = append(volumeList, corev1.Volume{
+	if instance.Spec.RawResultStorage.Enabled {
+		tlsVolume := corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: ClientCertPrefix + instance.Name,
 				},
 			},
-		},
-		)
-		return volumeList
+		}
+		volumesList = append(volumesList, tlsVolume)
 	}
+	return volumesList
 }
 
 func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev1.Node) []corev1.Volume {
@@ -425,18 +412,16 @@ func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Disabled {
-		return volumesList
-	} else {
-		volumesList = append(volumesList, corev1.Volume{
+	if instance.Spec.RawResultStorage.Enabled {
+		tlsVolume := corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: ClientCertPrefix + instance.Name,
 				},
 			},
-		},
-		)
-		return volumesList
+		}
+		volumesList = append(volumesList, tlsVolume)
 	}
+	return volumesList
 }

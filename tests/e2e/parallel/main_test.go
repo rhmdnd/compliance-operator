@@ -2090,7 +2090,7 @@ func TestScheduledSuitePriorityClass(t *testing.T) {
 	}
 }
 
-func TestScheduledSuiteNoStorage(t *testing.T) {
+func TestDisableRawResultStorage(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
 	suiteName := "test-scheduled-suite-no-storage"
@@ -2119,7 +2119,7 @@ func TestScheduledSuiteNoStorage(t *testing.T) {
 						NodeSelector: selectWorkers,
 						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 							RawResultStorage: compv1alpha1.RawResultStorageSettings{
-								Disabled: true,
+								Enabled: false,
 							},
 							Debug: true,
 						},
