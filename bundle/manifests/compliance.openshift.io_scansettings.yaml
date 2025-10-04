@@ -76,11 +76,12 @@ spec:
           rawResultStorage:
             description: Specifies settings that pertain to raw result storage.
             properties:
-              disabled:
-                default: false
+              enabled:
+                default: true
                 description: |-
-                  Specifies if the raw result storage is disabled. This is useful in case
-                  the raw results are not needed. Defaults to false.
+                  Specifies if raw scan results should be saved to persistent volumes.
+                  This is useful for enabling compliance scans in environments that
+                  don't have storage. Defaults to true.
                 type: boolean
               nodeSelector:
                 additionalProperties:

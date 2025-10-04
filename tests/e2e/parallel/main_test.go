@@ -2161,7 +2161,7 @@ func TestScheduledSuiteNoStorage(t *testing.T) {
 						NodeSelector: selectWorkers,
 						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 							RawResultStorage: compv1alpha1.RawResultStorageSettings{
-								Disabled: true,
+								Enabled: false,
 							},
 							Debug: true,
 						},

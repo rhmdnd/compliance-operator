@@ -284,23 +284,15 @@ func getResultServerURI(instance *compv1alpha1.ComplianceScan) string {
 }
 
 func getDisableRawResultUploadValue(instance *compv1alpha1.ComplianceScan) string {
-	if instance.Spec.RawResultStorage.Disabled {
-		return "true"
-	} else {
+	if instance.Spec.RawResultStorage.Enabled {
 		return "false"
+	} else {
+		return "true"
 	}
 }
 
 func getLogCollectorVolumeMounts(instance *compv1alpha1.ComplianceScan) []corev1.VolumeMount {
-	if instance.Spec.RawResultStorage.Disabled {
-		return []corev1.VolumeMount{
-			{
-				Name:      "report-dir",
-				MountPath: "/reports",
-				ReadOnly:  true,
-			},
-		}
-	} else {
+	if instance.Spec.RawResultStorage.Enabled {
 		return []corev1.VolumeMount{
 			{
 				Name:      "report-dir",
@@ -312,8 +304,15 @@ func getLogCollectorVolumeMounts(instance *compv1alpha1.ComplianceScan) []corev1
 				ReadOnly:  true,
 			},
 		}
+	} else {
+		return []corev1.VolumeMount{
+			{
+				Name:      "report-dir",
+				MountPath: "/reports",
+				ReadOnly:  true,
+			},
+		}
 	}
-
 }
 
 func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev1.Volume {
@@ -355,9 +354,7 @@ func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Disabled {
-		return volumeList
-	} else {
+	if instance.Spec.RawResultStorage.Enabled {
 		volumeList = append(volumeList, corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{
@@ -367,8 +364,8 @@ func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev
 			},
 		},
 		)
-		return volumeList
 	}
+	return volumeList
 }
 
 func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev1.Node) []corev1.Volume {
@@ -425,9 +422,7 @@ func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Disabled {
-		return volumesList
-	} else {
+	if instance.Spec.RawResultStorage.Enabled {
 		volumesList = append(volumesList, corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{
@@ -437,6 +432,6 @@ func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev
 			},
 		},
 		)
-		return volumesList
 	}
+	return volumesList
 }
