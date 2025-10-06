@@ -283,11 +283,11 @@ func getResultServerURI(instance *compv1alpha1.ComplianceScan) string {
 	return "https://" + getResultServerName(instance) + fmt.Sprintf(":%d/", ResultServerPort)
 }
 
-func getDisableRawResultUploadValue(instance *compv1alpha1.ComplianceScan) string {
+func getRawResultsOutputValue(instance *compv1alpha1.ComplianceScan) string {
 	if instance.Spec.RawResultStorage.Enabled {
-		return "false"
-	} else {
 		return "true"
+	} else {
+		return "false"
 	}
 }
 
@@ -297,6 +297,7 @@ func getLogCollectorVolumeMounts(instance *compv1alpha1.ComplianceScan) []corev1
 			{
 				Name:      "report-dir",
 				MountPath: "/reports",
+				ReadOnly:  true,
 			},
 			{
 				Name:      "tls",
