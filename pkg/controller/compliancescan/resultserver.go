@@ -284,7 +284,7 @@ func getResultServerURI(instance *compv1alpha1.ComplianceScan) string {
 }
 
 func getRawResultsOutputValue(instance *compv1alpha1.ComplianceScan) string {
-	if instance.Spec.RawResultStorage.Enabled {
+	if instance.Spec.RawResultStorage.Enabled != nil && *instance.Spec.RawResultStorage.Enabled {
 		return "true"
 	} else {
 		return "false"
@@ -292,7 +292,7 @@ func getRawResultsOutputValue(instance *compv1alpha1.ComplianceScan) string {
 }
 
 func getLogCollectorVolumeMounts(instance *compv1alpha1.ComplianceScan) []corev1.VolumeMount {
-	if instance.Spec.RawResultStorage.Enabled {
+	if instance.Spec.RawResultStorage.Enabled != nil && *instance.Spec.RawResultStorage.Enabled {
 		return []corev1.VolumeMount{
 			{
 				Name:      "report-dir",
@@ -355,7 +355,7 @@ func getPlatformScannerPodVolumes(instance *compv1alpha1.ComplianceScan) []corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Enabled {
+	if instance.Spec.RawResultStorage.Enabled != nil && *instance.Spec.RawResultStorage.Enabled {
 		volumeList = append(volumeList, corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{
@@ -423,7 +423,7 @@ func getNodeScannerPodVolumes(instance *compv1alpha1.ComplianceScan, node *corev
 			},
 		},
 	}
-	if instance.Spec.RawResultStorage.Enabled {
+	if instance.Spec.RawResultStorage.Enabled != nil && *instance.Spec.RawResultStorage.Enabled {
 		volumesList = append(volumesList, corev1.Volume{
 			Name: "tls",
 			VolumeSource: corev1.VolumeSource{

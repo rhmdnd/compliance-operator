@@ -2141,6 +2141,7 @@ func TestScheduledSuiteNoStorage(t *testing.T) {
 		"node-role.kubernetes.io/worker": "",
 	}
 
+	falseValue := false
 	testSuite := &compv1alpha1.ComplianceSuite{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      suiteName,
@@ -2161,7 +2162,7 @@ func TestScheduledSuiteNoStorage(t *testing.T) {
 						NodeSelector: selectWorkers,
 						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
 							RawResultStorage: compv1alpha1.RawResultStorageSettings{
-								Enabled: false,
+								Enabled: &falseValue,
 							},
 							Debug: true,
 						},
@@ -2527,6 +2528,173 @@ func TestScanSettingBinding(t *testing.T) {
 			}
 		}
 	}
+
+}
+
+func TestScanSettingBindingNoStorage(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+	objName := framework.GetObjNameFromTest(t)
+
+	ocpPb := &compv1alpha1.ProfileBundle{}
+	err := f.Client.Get(context.TODO(), types.NamespacedName{Name: "ocp4", Namespace: f.OperatorNamespace}, ocpPb)
+	if err != nil {
+		t.Fatalf("unable to get ocp4 profile bundle required for test: %s", err)
+	}
+
+	ocp4cisprofile := &compv1alpha1.Profile{}
+	key := types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocpPb.Name + "-cis"}
+	if err := f.Client.Get(context.TODO(), key, ocp4cisprofile); err != nil {
+		t.Fatal(err)
+	}
+	scanSettingNoStorageName := objName + "-setting-no-storage"
+	falseValue := false
+	scanSettingNoStorage := compv1alpha1.ScanSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingNoStorageName,
+			Namespace: f.OperatorNamespace,
+		},
+		ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+			AutoApplyRemediations: false,
+		},
+		ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+			Debug: true,
+			RawResultStorage: compv1alpha1.RawResultStorageSettings{
+				Enabled: &falseValue,
+			},
+		},
+		Roles: []string{"master", "worker"},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingNoStorage, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingNoStorage)
+	scanSettingWithStorageName := objName + "-setting-with-storage"
+
+	scanSettingWithStorage := scanSettingNoStorage.DeepCopy()
+	scanSettingWithStorage.Name = scanSettingWithStorageName
+	trueValue := true
+	scanSettingWithStorage.ComplianceScanSettings.RawResultStorage.Enabled = &trueValue
+
+	if err := f.Client.Create(context.TODO(), scanSettingWithStorage, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), scanSettingWithStorage)
+
+	scanSettingBindingName := "generated-suite-storage-test"
+	scanSettingBinding := compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingBindingName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			// TODO: test also OCP profile when it works completely
+			{
+				Name:     ocp4cisprofile.Name,
+				Kind:     "Profile",
+				APIGroup: "compliance.openshift.io/v1alpha1",
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			Name:     scanSettingNoStorage.Name,
+			Kind:     "ScanSetting",
+			APIGroup: "compliance.openshift.io/v1alpha1",
+		},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingBinding, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingBinding)
+
+	// Wait until the suite finishes, thus verifying the suite exists
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocp4cisprofile.Name}
+	scan := &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled {
+		t.Fatal("Expected that the scan does not have raw result storage enabled")
+	}
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) > 0 {
+		for _, pvc := range pvcList.Items {
+			t.Fatalf("Found unexpected PVC %s", pvc.Name)
+		}
+		t.Fatal("Expected not to find PVC associated with the scan.")
+	}
+	// let's delete the scan setting binding
+	if err := f.Client.Delete(context.TODO(), &scanSettingBinding); err != nil {
+		t.Fatal(err)
+	}
+
+	// let's create a new scan setting binding with the with storage setting
+	scanSettingBinding = compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingBindingName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				Name:     ocp4cisprofile.Name,
+				Kind:     "Profile",
+				APIGroup: "compliance.openshift.io/v1alpha1",
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			Name:     scanSettingWithStorage.Name,
+			Kind:     "ScanSetting",
+			APIGroup: "compliance.openshift.io/v1alpha1",
+		},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingBinding, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingBinding)
+
+	// Wait until the suite finishes, thus verifying the suite exists
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scanKey = types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocp4cisprofile.Name}
+	scan = &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled == false {
+		t.Fatal("Expected that the scan has raw result storage enabled")
+	}
+
+	pvcList = &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) == 0 {
+		t.Fatal("Expected to find PVC associated with the scan.")
+	}
+	t.Logf("Found PVC %s", pvcList.Items[0].Name)
+	t.Logf("Succeeded to create PVC associated with the scan.")
 
 }
 

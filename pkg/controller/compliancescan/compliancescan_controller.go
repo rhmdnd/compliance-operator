@@ -257,17 +257,10 @@ func (r *ReconcileComplianceScan) validate(instance *compv1alpha1.ComplianceScan
 		return false, err
 	}
 
-	// Enable rawResultStorage if the ComplianceScan doesn't have it set
-	// already. Compliance Operator 1.8.0 included a new attribute for
-	// ScanSettings (spec.RawResultStorage.Enabled) and it defaults to
-	// "true" for backwards compatibility. However, we need to make sure we
-	// look for that attribute if it doesn't exist and set it to a
-	// reasonable default so that results don't disappear inadvertently on
-	// upgrade for objects that exist in the cluster prior to the 1.8.0
-	// upgrade.
-	if !instance.Spec.RawResultStorage.Enabled {
+	if instance.Spec.RawResultStorage.Enabled == nil {
 		instanceCopy := instance.DeepCopy()
-		instanceCopy.Spec.RawResultStorage.Enabled = true
+		trueValue := true
+		instanceCopy.Spec.RawResultStorage.Enabled = &trueValue
 		err := r.Client.Update(context.TODO(), instanceCopy)
 		return false, err
 	}
@@ -451,7 +444,7 @@ func (r *ReconcileComplianceScan) phaseLaunchingHandler(h scanTypeHandler, logge
 		return reconcile.Result{}, err
 	}
 
-	if scan.Spec.RawResultStorage.Enabled {
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled {
 		if err = r.handleResultServerSecret(scan, logger); err != nil {
 			logger.Error(err, "Cannot create result server cert secret")
 			return reconcile.Result{}, err
@@ -898,7 +891,7 @@ func (r *ReconcileComplianceScan) phaseDoneHandler(h scanTypeHandler, instance *
 		}
 	} else {
 		// If we're done with the scan but we're not cleaning up just yet.
-		if instance.Spec.RawResultStorage.Enabled {
+		if instance.Spec.RawResultStorage.Enabled != nil && *instance.Spec.RawResultStorage.Enabled {
 			// scale down resultserver so it's not still listening for requests.
 			if err := r.scaleDownResultServer(instance, logger); err != nil {
 				logger.Error(err, "Cannot scale down result server")
