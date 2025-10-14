@@ -2549,6 +2549,8 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	}
 	scanSettingNoStorageName := objName + "-setting-no-storage"
 	falseValue := false
+	trueValue := true
+	scanSettingWithStorageName := objName + "-setting-with-storage"
 	scanSettingNoStorage := compv1alpha1.ScanSetting{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scanSettingNoStorageName,
@@ -2566,21 +2568,32 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		Roles: []string{"master", "worker"},
 	}
 
+	scanSettingWithStorage := compv1alpha1.ScanSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingWithStorageName,
+			Namespace: f.OperatorNamespace,
+		},
+		ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+			AutoApplyRemediations: false,
+		},
+		ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+			Debug: true,
+			RawResultStorage: compv1alpha1.RawResultStorageSettings{
+				Enabled: &trueValue,
+			},
+		},
+		Roles: []string{"master", "worker"},
+	}
+
 	if err := f.Client.Create(context.TODO(), &scanSettingNoStorage, nil); err != nil {
 		t.Fatal(err)
 	}
 	defer f.Client.Delete(context.TODO(), &scanSettingNoStorage)
-	scanSettingWithStorageName := objName + "-setting-with-storage"
 
-	scanSettingWithStorage := scanSettingNoStorage.DeepCopy()
-	scanSettingWithStorage.Name = scanSettingWithStorageName
-	trueValue := true
-	scanSettingWithStorage.ComplianceScanSettings.RawResultStorage.Enabled = &trueValue
-
-	if err := f.Client.Create(context.TODO(), scanSettingWithStorage, nil); err != nil {
+	if err := f.Client.Create(context.TODO(), &scanSettingWithStorage, nil); err != nil {
 		t.Fatal(err)
 	}
-	defer f.Client.Delete(context.TODO(), scanSettingWithStorage)
+	defer f.Client.Delete(context.TODO(), &scanSettingWithStorage)
 
 	scanSettingBindingName := "generated-suite-storage-test"
 	scanSettingBinding := compv1alpha1.ScanSettingBinding{
@@ -2696,8 +2709,53 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	t.Logf("Found PVC %s", pvcList.Items[0].Name)
 	t.Logf("Succeeded to create PVC associated with the scan.")
 
-}
+	// let's update the scan setting binding to use the no storage setting
+	ssb := &compv1alpha1.ScanSettingBinding{}
+	if err := f.Client.Get(context.TODO(), types.NamespacedName{Namespace: f.OperatorNamespace, Name: scanSettingBindingName}, ssb); err != nil {
+		t.Fatal("Expected to find the scan setting binding, but got error: ", err)
+	}
+	ssb.SettingsRef.Name = scanSettingNoStorage.Name
+	if err := f.Client.Update(context.TODO(), ssb); err != nil {
+		t.Fatal(err)
+	}
 
+	// let's rerun the scan
+	err = f.ReRunScan(scan.Name, f.OperatorNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// wait for scan to finish
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// get the scan again
+	scan = &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	// make sure enabled is false
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled == true {
+		t.Fatal("Expected that the scan does not have raw result storage enabled")
+	}
+
+	// let's check that the PVC should be there and still associated with the scan
+	pvcList = &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) == 0 {
+		t.Fatal("Expected to find PVC associated with the scan.")
+	}
+	t.Logf("Found PVC %s", pvcList.Items[0].Name)
+	t.Logf("Succeeded to check that the PVC is still there.")
+
+}
 func TestScanSettingBindingTailoringManyEnablingRulePass(t *testing.T) {
 
 	t.Parallel()
