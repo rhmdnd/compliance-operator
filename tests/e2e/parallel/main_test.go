@@ -2559,6 +2559,8 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	}
 
 	suiteName := "storage-test-node"
+	scanSettingBindingName := suiteName
+
 	tp := &compv1alpha1.TailoredProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      suiteName,
@@ -2632,7 +2634,6 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	}
 	defer f.Client.Delete(context.TODO(), &scanSettingWithStorage)
 
-	scanSettingBindingName := "generated-suite-storage-test"
 	scanSettingBinding := compv1alpha1.ScanSettingBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scanSettingBindingName,
