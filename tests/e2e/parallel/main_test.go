@@ -2535,18 +2535,55 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
 	objName := framework.GetObjNameFromTest(t)
+	var baselineImage = fmt.Sprintf("%s:%s", brokenContentImagePath, "kubeletconfig")
+	const requiredRule = "kubelet-eviction-thresholds-set-soft-imagefs-available"
+	pbName := framework.GetObjNameFromTest(t)
+	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
 
-	ocpPb := &compv1alpha1.ProfileBundle{}
-	err := f.Client.Get(context.TODO(), types.NamespacedName{Name: "ocp4", Namespace: f.OperatorNamespace}, ocpPb)
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
 	if err != nil {
-		t.Fatalf("unable to get ocp4 profile bundle required for test: %s", err)
-	}
-
-	ocp4cisprofile := &compv1alpha1.Profile{}
-	key := types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocpPb.Name + "-cis"}
-	if err := f.Client.Get(context.TODO(), key, ocp4cisprofile); err != nil {
 		t.Fatal(err)
 	}
+	defer f.Client.Delete(context.TODO(), ocpPb)
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that if the rule we are going to test is there
+	requiredRuleName := prefixName(pbName, requiredRule)
+	err, found := framework.Global.DoesRuleExist(f.OperatorNamespace, requiredRuleName)
+	if err != nil {
+		t.Fatal(err)
+	} else if !found {
+		t.Fatalf("Expected rule %s not found", requiredRuleName)
+	}
+
+	suiteName := "storage-test-node"
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+			Annotations: map[string]string{
+				compv1alpha1.DisableOutdatedReferenceValidation: "true",
+			},
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "storage-test",
+			Description: "A test tailored profile to test storage settings",
+			ManualRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      prefixName(pbName, requiredRule),
+					Rationale: "To be tested",
+				},
+			},
+		},
+	}
+
+	createTPErr := f.Client.Create(context.TODO(), tp, nil)
+	if createTPErr != nil {
+		t.Fatal(createTPErr)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
 	scanSettingNoStorageName := objName + "-setting-no-storage"
 	falseValue := false
 	trueValue := true
@@ -2602,11 +2639,10 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Profiles: []compv1alpha1.NamedObjectReference{
-			// TODO: test also OCP profile when it works completely
 			{
-				Name:     ocp4cisprofile.Name,
-				Kind:     "Profile",
 				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     suiteName,
 			},
 		},
 		SettingsRef: &compv1alpha1.NamedObjectReference{
@@ -2627,7 +2663,7 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocp4cisprofile.Name}
+	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName}
 	scan := &compv1alpha1.ComplianceScan{}
 	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
 		t.Fatal(err)
@@ -2663,9 +2699,9 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		},
 		Profiles: []compv1alpha1.NamedObjectReference{
 			{
-				Name:     ocp4cisprofile.Name,
-				Kind:     "Profile",
 				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     suiteName,
 			},
 		},
 		SettingsRef: &compv1alpha1.NamedObjectReference{
@@ -2686,7 +2722,7 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scanKey = types.NamespacedName{Namespace: f.OperatorNamespace, Name: ocp4cisprofile.Name}
+	scanKey = types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName}
 	scan = &compv1alpha1.ComplianceScan{}
 	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
 		t.Fatal(err)
