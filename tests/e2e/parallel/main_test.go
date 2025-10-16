@@ -2530,7 +2530,6 @@ func TestScanSettingBinding(t *testing.T) {
 	}
 
 }
-
 func TestScanSettingBindingNoStorage(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
@@ -2664,7 +2663,7 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName}
+	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName + "-master"}
 	scan := &compv1alpha1.ComplianceScan{}
 	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
 		t.Fatal(err)
@@ -2723,7 +2722,6 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scanKey = types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName}
 	scan = &compv1alpha1.ComplianceScan{}
 	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
 		t.Fatal(err)
@@ -2793,6 +2791,7 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 	t.Logf("Succeeded to check that the PVC is still there.")
 
 }
+
 func TestScanSettingBindingTailoringManyEnablingRulePass(t *testing.T) {
 
 	t.Parallel()
