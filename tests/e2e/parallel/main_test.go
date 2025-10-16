@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -2131,6 +2132,73 @@ func TestScheduledSuitePriorityClass(t *testing.T) {
 	}
 }
 
+func TestScheduledSuiteNoStorage(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+	suiteName := "test-scheduled-suite-no-storage"
+	workerScanName := fmt.Sprintf("%s-workers-scan", suiteName)
+	selectWorkers := map[string]string{
+		"node-role.kubernetes.io/worker": "",
+	}
+
+	falseValue := false
+	testSuite := &compv1alpha1.ComplianceSuite{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceSuiteSpec{
+			ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+				AutoApplyRemediations: false,
+			},
+			Scans: []compv1alpha1.ComplianceScanSpecWrapper{
+				{
+					Name: workerScanName,
+					ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
+						ContentImage: contentImagePath,
+						Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+						Content:      framework.RhcosContentFile,
+						Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
+						NodeSelector: selectWorkers,
+						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+							RawResultStorage: compv1alpha1.RawResultStorageSettings{
+								Enabled: &falseValue,
+							},
+							Debug: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := f.Client.Create(context.TODO(), testSuite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), testSuite)
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: workerScanName,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) > 0 {
+		for _, pvc := range pvcList.Items {
+			t.Fatalf("Found unexpected PVC %s", pvc.Name)
+		}
+		t.Fatal("Expected not to find PVC associated with the scan.")
+	}
+
+	// Ensure that all the scans in the suite have finished and are marked as Done
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestScheduledSuiteInvalidPriorityClass(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
@@ -2460,6 +2528,267 @@ func TestScanSettingBinding(t *testing.T) {
 			}
 		}
 	}
+
+}
+func TestScanSettingBindingNoStorage(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+	objName := framework.GetObjNameFromTest(t)
+	var baselineImage = fmt.Sprintf("%s:%s", brokenContentImagePath, "kubeletconfig")
+	const requiredRule = "kubelet-eviction-thresholds-set-soft-imagefs-available"
+	pbName := framework.GetObjNameFromTest(t)
+	prefixName := func(profName, ruleBaseName string) string { return profName + "-" + ruleBaseName }
+
+	ocpPb, err := f.CreateProfileBundle(pbName, baselineImage, framework.OcpContentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ocpPb)
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that if the rule we are going to test is there
+	requiredRuleName := prefixName(pbName, requiredRule)
+	err, found := framework.Global.DoesRuleExist(f.OperatorNamespace, requiredRuleName)
+	if err != nil {
+		t.Fatal(err)
+	} else if !found {
+		t.Fatalf("Expected rule %s not found", requiredRuleName)
+	}
+
+	suiteName := "storage-test-node"
+	scanSettingBindingName := suiteName
+
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+			Annotations: map[string]string{
+				compv1alpha1.DisableOutdatedReferenceValidation: "true",
+			},
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "storage-test",
+			Description: "A test tailored profile to test storage settings",
+			ManualRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      prefixName(pbName, requiredRule),
+					Rationale: "To be tested",
+				},
+			},
+		},
+	}
+
+	createTPErr := f.Client.Create(context.TODO(), tp, nil)
+	if createTPErr != nil {
+		t.Fatal(createTPErr)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+	scanSettingNoStorageName := objName + "-setting-no-storage"
+	falseValue := false
+	trueValue := true
+	scanSettingWithStorageName := objName + "-setting-with-storage"
+	scanSettingNoStorage := compv1alpha1.ScanSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingNoStorageName,
+			Namespace: f.OperatorNamespace,
+		},
+		ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+			AutoApplyRemediations: false,
+		},
+		ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+			Debug: true,
+			RawResultStorage: compv1alpha1.RawResultStorageSettings{
+				Enabled: &falseValue,
+			},
+		},
+		Roles: []string{"master", "worker"},
+	}
+
+	scanSettingWithStorage := compv1alpha1.ScanSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingWithStorageName,
+			Namespace: f.OperatorNamespace,
+		},
+		ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+			AutoApplyRemediations: false,
+		},
+		ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+			Debug: true,
+			RawResultStorage: compv1alpha1.RawResultStorageSettings{
+				Enabled: &trueValue,
+			},
+		},
+		Roles: []string{"master", "worker"},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingNoStorage, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingNoStorage)
+
+	if err := f.Client.Create(context.TODO(), &scanSettingWithStorage, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingWithStorage)
+
+	scanSettingBinding := compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingBindingName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     suiteName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			Name:     scanSettingNoStorage.Name,
+			Kind:     "ScanSetting",
+			APIGroup: "compliance.openshift.io/v1alpha1",
+		},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingBinding, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingBinding)
+
+	// Wait until the suite finishes, thus verifying the suite exists
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: suiteName + "-master"}
+	scan := &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled {
+		t.Fatal("Expected that the scan does not have raw result storage enabled")
+	}
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) > 0 {
+		for _, pvc := range pvcList.Items {
+			t.Fatalf("Found unexpected PVC %s", pvc.Name)
+		}
+		t.Fatal("Expected not to find PVC associated with the scan.")
+	}
+	// let's delete the scan setting binding
+	if err := f.Client.Delete(context.TODO(), &scanSettingBinding); err != nil {
+		t.Fatal(err)
+	}
+
+	// let's create a new scan setting binding with the with storage setting
+	scanSettingBinding = compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingBindingName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     suiteName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			Name:     scanSettingWithStorage.Name,
+			Kind:     "ScanSetting",
+			APIGroup: "compliance.openshift.io/v1alpha1",
+		},
+	}
+
+	if err := f.Client.Create(context.TODO(), &scanSettingBinding, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSettingBinding)
+
+	// Wait until the suite finishes, thus verifying the suite exists
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scan = &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled == false {
+		t.Fatal("Expected that the scan has raw result storage enabled")
+	}
+
+	pvcList = &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) == 0 {
+		t.Fatal("Expected to find PVC associated with the scan.")
+	}
+	t.Logf("Found PVC %s", pvcList.Items[0].Name)
+	t.Logf("Succeeded to create PVC associated with the scan.")
+
+	// let's update the scan setting binding to use the no storage setting
+	ssb := &compv1alpha1.ScanSettingBinding{}
+	if err := f.Client.Get(context.TODO(), types.NamespacedName{Namespace: f.OperatorNamespace, Name: scanSettingBindingName}, ssb); err != nil {
+		t.Fatal("Expected to find the scan setting binding, but got error: ", err)
+	}
+	ssb.SettingsRef.Name = scanSettingNoStorage.Name
+	if err := f.Client.Update(context.TODO(), ssb); err != nil {
+		t.Fatal(err)
+	}
+
+	// let's rerun the scan
+	err = f.ReRunScan(scan.Name, f.OperatorNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// wait for scan to finish
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, scanSettingBindingName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// get the scan again
+	scan = &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	// make sure enabled is false
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled == true {
+		t.Fatal("Expected that the scan does not have raw result storage enabled")
+	}
+
+	// let's check that the PVC should be there and still associated with the scan
+	pvcList = &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) == 0 {
+		t.Fatal("Expected to find PVC associated with the scan.")
+	}
+	t.Logf("Found PVC %s", pvcList.Items[0].Name)
+	t.Logf("Succeeded to check that the PVC is still there.")
 
 }
 
