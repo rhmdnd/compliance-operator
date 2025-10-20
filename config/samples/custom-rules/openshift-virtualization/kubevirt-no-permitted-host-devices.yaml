@@ -1,0 +1,42 @@
+apiVersion: compliance.openshift.io/v1alpha1
+kind: CustomRule
+metadata:
+  name: kubevirt-no-permitted-host-devices
+  namespace: openshift-compliance
+spec:
+  title: "KubeVirt Must Not Permit Host Devices"
+  id: kubevirt_no_permitted_host_devices
+  description: |-
+    Host devices should not be permitted to virtualization workloads unless
+    absolutely necessary for workload execution. Allowing host devices provides
+    direct access to host hardware, which can introduce security risks including
+    unauthorized access to sensitive hardware resources, potential for privilege
+    escalation, and bypass of virtualization security boundaries.
+
+    By default, no host devices should be trusted or permitted for use by
+    virtualization workloads.
+  failureReason: |-
+    The '.spec.permittedHostDevices' field is set in the 'kubevirt-hyperconverged'
+    resource, allowing host devices to be used by virtualization workloads.
+  severity: Medium
+  checkType: Platform
+  scannerType: CEL
+  inputs:
+    - name: hcoList
+      kubernetesInputSpec:
+        apiVersion: hco.kubevirt.io/v1beta1
+        resource: hyperconvergeds
+  expression: |
+    hcoList.items.filter(h,
+        h.metadata.name == 'kubevirt-hyperconverged' &&
+        h.metadata.namespace == 'openshift-cnv'
+    ).size() == 1 &&
+    hcoList.items.filter(h,
+        h.metadata.name == 'kubevirt-hyperconverged' &&
+        h.metadata.namespace == 'openshift-cnv'
+    ).all(h,
+        !has(h.spec.permittedHostDevices) ||
+        h.spec.permittedHostDevices == null ||
+        (has(h.spec.permittedHostDevices.pciHostDevices) && size(h.spec.permittedHostDevices.pciHostDevices) == 0) &&
+        (has(h.spec.permittedHostDevices.mediatedDevices) && size(h.spec.permittedHostDevices.mediatedDevices) == 0)
+    )

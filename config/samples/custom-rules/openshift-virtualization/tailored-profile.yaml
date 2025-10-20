@@ -1,0 +1,31 @@
+apiVersion: compliance.openshift.io/v1alpha1
+kind: TailoredProfile
+metadata:
+  name: openshift-virt-platform-checks
+  namespace: openshift-compliance
+spec:
+  description: Custom security checks for OpenShift Virtualization
+  enableRules:
+    - kind: CustomRule
+      name: kubevirt-nonroot-feature-gate-is-enabled
+      rationale: |-
+        Unauthorized access to a root account without restrictions implemented
+        by the nonRoot feature introduces the risk of unintended or
+        unauthorized access to privilege elevation and the ability to perform
+        administrative tasks.
+    - kind: CustomRule
+      name: kubevirt-no-permitted-host-devices
+      rationale: |-
+        Host devices should not be permitted to virtualization workloads unless
+        absolutely necessary. Allowing host devices provides direct access to
+        host hardware, which can introduce security risks including
+        unauthorized access to sensitive hardware resources and potential
+        privilege escalation.
+    - kind: CustomRule
+      name: kubevirt-persistent-reservation-disabled
+      rationale: |-
+        The persistent reservation feature gate should be disabled unless
+        explicitly required. This feature allows VMs to claim exclusive access
+        to storage resources, potentially impacting availability and enabling
+        resource manipulation outside normal access controls.
+  title: Platform checks for OpenShift Virtualization
