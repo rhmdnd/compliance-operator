@@ -1,6 +1,6 @@
 contentOrigin:
   repofiles:
-     - ./redhat.repo
+     - ../redhat.repo
 
 packages:
   - tar
