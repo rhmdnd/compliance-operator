@@ -2546,10 +2546,10 @@ func TestCustomRuleTailoredProfile(t *testing.T) {
 	if err := f.Client.Get(context.TODO(), key, suite); err != nil {
 		t.Fatal(err)
 	}
-	// let's rescans and expect the check to be non compliant by deleting the suite
-	err = f.Client.Delete(context.TODO(), suite)
+	// Annotate all ComplianceScans in the suite to generate fresh results
+	err = f.RescanSuite(suiteName, testNamespace)
 	if err != nil {
-		t.Fatalf("Failed to delete suite: %v", err)
+		t.Fatalf("Failed to rescan suite: %s", err)
 	}
 	err = f.WaitForSuiteScansStatus(testNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
 	if err != nil {
@@ -3459,10 +3459,10 @@ func TestCustomRuleFailureReasonInCheckResult(t *testing.T) {
 		t.Fatalf("Failed to get ComplianceSuite: %v", err)
 	}
 
-	// Delete and recreate the suite to trigger a new scan
-	err = f.Client.Delete(context.TODO(), suite)
+	// Annotate all ComplianceScans in the suite to generate fresh results
+	err = f.RescanSuite(suiteName, testNamespace)
 	if err != nil {
-		t.Fatalf("Failed to delete ComplianceSuite: %v", err)
+		t.Fatalf("Failed to rescan ComplianceSuite: %v", err)
 	}
 
 	// Wait for the new scan to complete
