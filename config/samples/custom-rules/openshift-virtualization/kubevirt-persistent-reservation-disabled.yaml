@@ -1,0 +1,39 @@
+apiVersion: compliance.openshift.io/v1alpha1
+kind: CustomRule
+metadata:
+  name: kubevirt-persistent-reservation-disabled
+  namespace: openshift-compliance
+spec:
+  title: "KubeVirt Persistent Reservation Feature Gate Must Be Disabled"
+  id: kubevirt_persistent_reservation_disabled
+  description: |-
+    The persistent reservation feature gate in KubeVirt allows virtual machines
+    to use SCSI persistent reservations, which provide exclusive access to shared
+    storage. This feature should be disabled unless explicitly required for
+    workload operation, as it can introduce security risks by allowing VMs to
+    claim exclusive access to storage resources, potentially impacting availability
+    and enabling resource manipulation outside normal access controls.
+  failureReason: |-
+    The '.spec.featureGates.persistentReservation' field is missing, not set,
+    or not set to 'false' in the 'kubevirt-hyperconverged' resource.
+  severity: Medium
+  checkType: Platform
+  scannerType: CEL
+  inputs:
+    - name: hcoList
+      kubernetesInputSpec:
+        apiVersion: hco.kubevirt.io/v1beta1
+        resource: hyperconvergeds
+  expression: |
+    hcoList.items.filter(h,
+        h.metadata.name == 'kubevirt-hyperconverged' &&
+        h.metadata.namespace == 'openshift-cnv'
+    ).size() == 1 &&
+    hcoList.items.filter(h,
+        h.metadata.name == 'kubevirt-hyperconverged' &&
+        h.metadata.namespace == 'openshift-cnv'
+    ).all(h,
+        has(h.spec.featureGates) &&
+        has(h.spec.featureGates.persistentReservation) &&
+        h.spec.featureGates.persistentReservation == false
+    )
