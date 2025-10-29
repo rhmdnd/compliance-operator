@@ -8,13 +8,13 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch == "master" && ( ".tekton/compliance-operator-bundle-dev-*.yaml".pathChanged() || "bundle-hack/***".pathChanged() || "bundle/***".pathChanged() || "bundle.openshift.Dockerfile".pathChanged() )
+    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch == "release-1.8" && ( ".tekton/compliance-operator-release-1-8-*.yaml".pathChanged() || "*.go".pathChanged() || "pkg/**/*.go".pathChanged() || "cmd/**/*.go".pathChanged() || "version/***".pathChanged() || "config/***".pathChanged() || "*Makefile*".pathChanged() || "vendor/***".pathChanged() || "tests/***".pathChanged() || "LICENSE".pathChanged() )
   creationTimestamp:
   labels:
-    appstudio.openshift.io/application: compliance-operator-dev
-    appstudio.openshift.io/component: compliance-operator-bundle-dev
+    appstudio.openshift.io/application: compliance-operator-release-1-8
+    appstudio.openshift.io/component: compliance-operator-release-1-8
     pipelines.appstudio.openshift.io/type: build
-  name: compliance-operator-bundle-dev-on-pull-request
+  name: compliance-operator-release-1-8-on-pull-request
   namespace: ocp-isc-tenant
 spec:
   params:
@@ -23,23 +23,29 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-bundle-dev:on-pr-{{revision}}
+    value: quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-release:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
+  - name: build-platforms
+    value:
+    - linux/x86_64
+    - linux/arm64
+    - linux/ppc64le
+    - linux/s390x
   - name: dockerfile
-    value: bundle.openshift.Dockerfile
+    value: images/operator/Dockerfile
   - name: hermetic
     value: "true"
-  - name: prefetch-input
-    value: '{"type": "gomod", "path": "."}'
   - name: build-source-image
     value: "true"
+  - name: prefetch-input
+    value: '{"type": "rpm", "path": "images/operator/"}'
   pipelineSpec:
     description: |
-      This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
+      This pipeline is ideal for building multi-arch container images from a Containerfile while maintaining trust after pipeline customization.
 
-      _Uses `buildah` to create a container image leveraging [trusted artifacts](https://konflux-ci.dev/architecture/ADR/0036-trusted-artifacts.html). It also optionally creates a source image and runs some build-time tests. Information is shared between tasks using OCI artifacts instead of PVCs. EC will pass the [`trusted_task.trusted`](https://conforma.dev/docs/policy/packages/release_trusted_task.html#trusted_task__trusted) policy as long as all data used to build the artifact is generated from trusted tasks.
-      This pipeline is pushed as a Tekton bundle to [quay.io](https://quay.io/repository/konflux-ci/tekton-catalog/pipeline-docker-build-oci-ta?tab=tags)_
+      _Uses `buildah` to create a multi-platform container image leveraging [trusted artifacts](https://konflux-ci.dev/architecture/ADR/0036-trusted-artifacts.html). It also optionally creates a source image and runs some build-time tests. This pipeline requires that the [multi platform controller](https://github.com/konflux-ci/multi-platform-controller) is deployed and configured on your Konflux instance. Information is shared between tasks using OCI artifacts instead of PVCs. EC will pass the [`trusted_task.trusted`](https://conforma.dev/docs/policy/packages/release_trusted_task.html#trusted_task__trusted) policy as long as all data used to build the artifact is generated from trusted tasks.
+      This pipeline is pushed as a Tekton bundle to [quay.io](https://quay.io/repository/konflux-ci/tekton-catalog/pipeline-docker-build-multi-platform-oci-ta?tab=tags)_
     finally:
     - name: show-sbom
       params:
@@ -97,7 +103,7 @@ spec:
       description: Build a source image.
       name: build-source-image
       type: string
-    - default: "false"
+    - default: "true"
       description: Add built image into an OCI image index
       name: build-image-index
       type: string
@@ -113,6 +119,11 @@ spec:
       description: Whether to enable privileged mode, should be used only with remote VMs
       name: privileged-nested
       type: string
+    - default:
+      - linux/x86_64
+      description: List of platforms to build the container images on. The available set of values is determined by the configuration of the multi-platform-controller.
+      name: build-platforms
+      type: array
     - name: buildah-format
       default: docker
       type: string
@@ -205,7 +216,12 @@ spec:
         workspace: git-auth
       - name: netrc
         workspace: netrc
-    - name: build-container
+    - matrix:
+        params:
+        - name: PLATFORM
+          value:
+          - $(params.build-platforms)
+      name: build-images
       params:
       - name: IMAGE
         value: $(params.output-image)
@@ -232,6 +248,8 @@ spec:
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.CACHI2_ARTIFACT)
+      - name: IMAGE_APPEND_PLATFORM
+        value: "true"
       - name: BUILDAH_FORMAT
         value: $(params.buildah-format)
       runAfter:
@@ -239,9 +257,9 @@ spec:
       taskRef:
         params:
         - name: name
-          value: buildah-oci-ta
+          value: buildah-remote-oci-ta
         - name: bundle
-          value: quay.io/konflux-ci/tekton-catalog/task-buildah-oci-ta:0.6@sha256:b990178b6bf21c353e1567fe1a66d1472f7f4a862f003cf8d5b31d1caa3c43d6
+          value: quay.io/konflux-ci/tekton-catalog/task-buildah-remote-oci-ta:0.6@sha256:3832edaec1aae546c225c86ada53611e42717c784e2068e0536831a99cb1922d
         - name: kind
           value: task
         resolver: bundles
@@ -262,11 +280,11 @@ spec:
         value: $(params.build-image-index)
       - name: IMAGES
         value:
-        - $(tasks.build-container.results.IMAGE_URL)@$(tasks.build-container.results.IMAGE_DIGEST)
+        - $(tasks.build-images.results.IMAGE_REF[*])
       - name: BUILDAH_FORMAT
         value: $(params.buildah-format)
       runAfter:
-      - build-container
+      - build-images
       taskRef:
         params:
         - name: name
@@ -333,7 +351,12 @@ spec:
         operator: in
         values:
         - "false"
-    - name: clair-scan
+    - matrix:
+        params:
+        - name: image-platform
+          value:
+          - $(params.build-platforms)
+      name: clair-scan
       params:
       - name: image-digest
         value: $(tasks.build-image-index.results.IMAGE_DIGEST)
@@ -611,7 +634,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-compliance-operator-bundle-dev
+    serviceAccountName: build-pipeline-compliance-operator-release-1-8
   workspaces:
   - name: git-auth
     secret:

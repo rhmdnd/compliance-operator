@@ -2,18 +2,19 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
+    build.appstudio.openshift.io/build-nudge-files: "bundle-hack/update_csv.go"
     build.appstudio.openshift.io/repo: https://github.com/ComplianceAsCode/compliance-operator?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "master" && ( ".tekton/compliance-operator-openscap-dev-*.yaml".pathChanged() || "images/openscap/***".pathChanged() || "images/openscap/Containerfile".pathChanged() || "LICENSE".pathChanged() )
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "release-1.8" && ( ".tekton/compliance-operator-release-1-8-*.yaml".pathChanged() || "*.go".pathChanged() || "pkg/**/*.go".pathChanged() || "cmd/**/*.go".pathChanged() || "version/***".pathChanged() || "config/***".pathChanged() || "*Makefile*".pathChanged() || "vendor/***".pathChanged() || "tests/***".pathChanged() || "LICENSE".pathChanged() )
   creationTimestamp:
   labels:
-    appstudio.openshift.io/application: compliance-operator-dev
-    appstudio.openshift.io/component: compliance-operator-openscap-dev
+    appstudio.openshift.io/application: compliance-operator-release-1-8
+    appstudio.openshift.io/component: compliance-operator-release-1-8
     pipelines.appstudio.openshift.io/type: build
-  name: compliance-operator-openscap-dev-on-push
+  name: compliance-operator-release-1-8-on-push
   namespace: ocp-isc-tenant
 spec:
   params:
@@ -22,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-openscap-dev:{{revision}}
+    value: quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-release:{{revision}}
   - name: build-platforms
     value:
     - linux/x86_64
@@ -30,19 +31,33 @@ spec:
     - linux/ppc64le
     - linux/s390x
   - name: dockerfile
-    value: images/openscap/Containerfile
+    value: images/operator/Dockerfile
   - name: hermetic
     value: "true"
   - name: build-source-image
     value: "true"
   - name: prefetch-input
-    value: '{"type": "rpm", "path": "images/openscap/"}'
+    value: '{"type": "rpm", "path": "images/operator/"}'
   pipelineSpec:
     description: |
       This pipeline is ideal for building multi-arch container images from a Containerfile while maintaining trust after pipeline customization.
 
       _Uses `buildah` to create a multi-platform container image leveraging [trusted artifacts](https://konflux-ci.dev/architecture/ADR/0036-trusted-artifacts.html). It also optionally creates a source image and runs some build-time tests. This pipeline requires that the [multi platform controller](https://github.com/konflux-ci/multi-platform-controller) is deployed and configured on your Konflux instance. Information is shared between tasks using OCI artifacts instead of PVCs. EC will pass the [`trusted_task.trusted`](https://conforma.dev/docs/policy/packages/release_trusted_task.html#trusted_task__trusted) policy as long as all data used to build the artifact is generated from trusted tasks.
       This pipeline is pushed as a Tekton bundle to [quay.io](https://quay.io/repository/konflux-ci/tekton-catalog/pipeline-docker-build-multi-platform-oci-ta?tab=tags)_
+    finally:
+    - name: show-sbom
+      params:
+      - name: IMAGE_URL
+        value: $(tasks.build-image-index.results.IMAGE_URL)
+      taskRef:
+        params:
+        - name: name
+          value: show-sbom
+        - name: bundle
+          value: quay.io/konflux-ci/tekton-catalog/task-show-sbom:0.1@sha256:beb0616db051952b4b861dd8c3e00fa1c0eccbd926feddf71194d3bb3ace9ce7
+        - name: kind
+          value: task
+        resolver: bundles
     params:
     - description: Source Repository URL
       name: git-url
@@ -55,13 +70,11 @@ spec:
       name: output-image
       type: string
     - default: .
-      description: Path to the source code of an application's component from where
-        to build image.
+      description: Path to the source code of an application's component from where to build image.
       name: path-context
       type: string
     - default: Dockerfile
-      description: Path to the Dockerfile inside the context specified by parameter
-        path-context
+      description: Path to the Dockerfile inside the context specified by parameter path-context
       name: dockerfile
       type: string
     - default: "false"
@@ -77,12 +90,11 @@ spec:
       name: hermetic
       type: string
     - default: ""
-      description: Build dependencies to be prefetched
+      description: Build dependencies to be prefetched by Cachi2
       name: prefetch-input
       type: string
     - default: ""
-      description: Image tag expiration time, time values could be something like
-        1h, 2d, 3w for hours, days, and weeks, respectively.
+      description: Image tag expiration time, time values could be something like 1h, 2d, 3w for hours, days, and weeks, respectively.
       name: image-expires-after
       type: string
     - default: "false"
@@ -102,14 +114,12 @@ spec:
       name: build-args-file
       type: string
     - default: "false"
-      description: Whether to enable privileged mode, should be used only with remote
-        VMs
+      description: Whether to enable privileged mode, should be used only with remote VMs
       name: privileged-nested
       type: string
     - default:
       - linux/x86_64
-      description: List of platforms to build the container images on. The available
-        set of values is determined by the configuration of the multi-platform-controller.
+      description: List of platforms to build the container images on. The available set of values is determined by the configuration of the multi-platform-controller.
       name: build-platforms
       type: array
     - name: buildah-format
@@ -186,6 +196,8 @@ spec:
         value: $(params.output-image).prefetch
       - name: ociArtifactExpiresAfter
         value: $(params.image-expires-after)
+      - name: dev-package-managers
+        value: "true"
       runAfter:
       - clone-repository
       taskRef:
@@ -230,8 +242,6 @@ spec:
         value: $(params.build-args-file)
       - name: PRIVILEGED_NESTED
         value: $(params.privileged-nested)
-      - name: SOURCE_URL
-        value: $(tasks.clone-repository.results.url)
       - name: SOURCE_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
@@ -291,12 +301,12 @@ spec:
       params:
       - name: BINARY_IMAGE
         value: $(tasks.build-image-index.results.IMAGE_URL)
-      - name: BINARY_IMAGE_DIGEST
-        value: $(tasks.build-image-index.results.IMAGE_DIGEST)
       - name: SOURCE_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.CACHI2_ARTIFACT)
+      - name: BINARY_IMAGE_DIGEST
+        value: $(tasks.build-image-index.results.IMAGE_DIGEST)
       runAfter:
       - build-image-index
       taskRef:
@@ -366,12 +376,7 @@ spec:
         operator: in
         values:
         - "false"
-    - matrix:
-        params:
-        - name: platform
-          value:
-          - $(params.build-platforms)
-      name: ecosystem-cert-preflight-checks
+    - name: ecosystem-cert-preflight-checks
       params:
       - name: image-url
         value: $(tasks.build-image-index.results.IMAGE_URL)
@@ -401,6 +406,8 @@ spec:
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.CACHI2_ARTIFACT)
+      - name: ARGS
+        value: "--project-name=openshift/compliance-operator --report --org=86a5b6bf-8aad-4842-ab41-e5c7358c202e"
       runAfter:
       - build-image-index
       taskRef:
@@ -417,12 +424,7 @@ spec:
         operator: in
         values:
         - "false"
-    - matrix:
-        params:
-        - name: image-arch
-          value:
-          - $(params.build-platforms)
-      name: clamav-scan
+    - name: clamav-scan
       params:
       - name: image-digest
         value: $(tasks.build-image-index.results.IMAGE_DIGEST)
@@ -568,6 +570,9 @@ spec:
         value: $(tasks.build-image-index.results.IMAGE_URL)
       - name: IMAGE_DIGEST
         value: $(tasks.build-image-index.results.IMAGE_DIGEST)
+      - name: ADDITIONAL_TAGS
+        value:
+        - '{{ target_branch }}'
       runAfter:
       - build-image-index
       taskRef:
@@ -630,7 +635,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-compliance-operator-openscap-dev
+    serviceAccountName: build-pipeline-compliance-operator-release-1-8
   workspaces:
   - name: git-auth
     secret:
