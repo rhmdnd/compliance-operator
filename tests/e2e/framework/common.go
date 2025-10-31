@@ -1176,6 +1176,40 @@ func (f *Framework) WaitForSuiteScansStatus(namespace, name string, targetStatus
 			return false, nil
 		}
 
+		// Loop through each scan to make sure it doesn't have the
+		// rescan annotation. This makes it safer to poll for suite
+		// status because we're making sure the ComplianceScan
+		// controller has the opportunity to update the scan status for
+		// each scan and remove the annotation before we look at the
+		// overall suite status. Without this, it's possible to rerun a
+		// scan and immediately pass through the
+		// WaitForSuiteScansStatus function because the ComplianceScan
+		// objects are still referencing the old scan data and haven't
+		// been reset to "PENDING".
+		for _, scanStatus := range suite.Status.ScanStatuses {
+			key := types.NamespacedName{Name: scanStatus.Name, Namespace: namespace}
+			scan := &compv1alpha1.ComplianceScan{}
+			err := f.Client.Get(context.TODO(), key, scan)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Printf("Waiting for scan %s to appear in suite: %s", scanStatus.Name, name)
+					return false, nil
+				}
+				return false, fmt.Errorf("failed to get scan %s: %s", scanStatus.Name, err)
+			}
+			if _, exists := scan.Annotations[compv1alpha1.ComplianceScanRescanAnnotation]; !exists {
+				// Move along, the rescan annotation has been
+				// removed (if the caller did use it to perform
+				// a rescan) by the ComplianceScan controller
+				// so we know we're not looking at stale
+				// results from a previous run.
+				continue
+			}
+
+			log.Printf("Waiting for ComplianceScan controller to remove rescan annotation for %s", scan.Name)
+			return false, nil
+		}
+
 		if suite.Status.Phase != targetStatus {
 			log.Printf("waiting until suite %s reaches target status '%s'. Current status: %s", suite.Name, targetStatus, suite.Status.Phase)
 			return false, nil
@@ -1225,6 +1259,62 @@ func (f *Framework) WaitForSuiteScansStatus(namespace, name string, targetStatus
 	}
 
 	log.Printf("All scans in ComplianceSuite have finished (%s)\n", suite.Name)
+	return nil
+}
+
+func (f *Framework) RescanSuite(suiteName, namespace string) error {
+	scanList := &compv1alpha1.ComplianceScanList{}
+	labelSelector, err := labels.Parse(compv1alpha1.SuiteLabel + "=" + suiteName)
+	if err != nil {
+		return fmt.Errorf("Failed to parse label selector: %s", err)
+	}
+
+	opts := &client.ListOptions{
+		LabelSelector: labelSelector,
+	}
+	err = f.Client.List(context.TODO(), scanList, opts)
+	if err != nil {
+		return fmt.Errorf("Failed to get scans for suite %s", suiteName)
+	}
+
+	// Add rescan annotation to each scan
+	for i := range scanList.Items {
+		scan := &scanList.Items[i]
+		err := f.RescanScan(scan.Name, scan.Namespace)
+		if err != nil {
+			return fmt.Errorf("Failed to apply rescan annotation to scan %s: %s", scan.Name, err)
+		}
+	}
+	return nil
+}
+
+func (f *Framework) RescanScan(scanName, namespace string) error {
+	key := types.NamespacedName{Name: scanName, Namespace: namespace}
+
+	interval := 5 * time.Second
+	retries := uint64(30)
+	bo := backoff.WithMaxRetries(backoff.NewConstantBackOff(interval), retries)
+	err := backoff.RetryNotify(func() error {
+		s := &compv1alpha1.ComplianceScan{}
+		err := f.Client.Get(context.TODO(), key, s)
+		if err != nil {
+			return fmt.Errorf("failed to get scan %s: %s", scanName, err)
+		}
+
+		// Add rescan annotation
+		if s.Annotations == nil {
+			s.Annotations = make(map[string]string)
+		}
+		s.Annotations[compv1alpha1.ComplianceScanRescanAnnotation] = ""
+
+		return f.Client.Update(context.TODO(), s)
+	}, bo, func(err error, d time.Duration) {
+		log.Printf("Failed to add rescan annotation to scan %s after %s: %s", scanName, d.String(), err)
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to trigger rescan for scan %s: %s", scanName, err)
+	}
+	log.Printf("Triggered rescan for scan %s", scanName)
 	return nil
 }
 
