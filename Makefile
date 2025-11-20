@@ -453,7 +453,7 @@ build: generate fmt vet test-unit ## Build the operator binary.
 manager: build  ## Alias for make build.
 
 .PHONY: verify-bundle
-verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
+verify-bundle: bundle verify-version-consistency ## Verify the bundle doesn't alter the state of the tree
 	hack/tree-status
 
 .PHONY: bundle
