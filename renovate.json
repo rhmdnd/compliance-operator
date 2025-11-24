@@ -2,7 +2,7 @@
   "extends": [
     "config:recommended"
   ],
-  "prConcurrentLimit": 30,
+  "prConcurrentLimit": 15,
   "labels": [
     "ok-to-test",
     "px-approved",
