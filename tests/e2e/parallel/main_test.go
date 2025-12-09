@@ -1012,6 +1012,10 @@ func TestSingleScanWithStorageSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	err = f.AssertARFReportExistsInPVC(scanName, f.OperatorNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestScanWithUnexistentResourceFails(t *testing.T) {

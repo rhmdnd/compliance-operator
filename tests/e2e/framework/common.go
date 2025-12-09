@@ -1540,6 +1540,65 @@ func (f *Framework) AssertScanHasValidPVCReferenceWithSize(scanName, size, names
 	return nil
 }
 
+func (f *Framework) AssertARFReportExistsInPVC(scanName, namespace string) error {
+	pvcName, err := f.GetRawResultClaimNameFromScan(namespace, scanName)
+	if err != nil {
+		return err
+	}
+
+	arfFormatCheckerPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanName + "-arf-checker",
+			Namespace: namespace,
+		},
+		Spec: core.PodSpec{
+			RestartPolicy: core.RestartPolicyNever,
+			Containers: []core.Container{
+				{
+					Name:    "format-checker",
+					Image:   "registry.access.redhat.com/ubi8/ubi-minimal",
+					Command: []string{"/bin/bash", "-c", "ls /scan-results/0 2>/dev/null | grep -q '.xml.bzip2' && exit 0 || exit 1"},
+					VolumeMounts: []core.VolumeMount{
+						{
+							Name:      "scan-results",
+							MountPath: "/scan-results",
+						},
+					},
+				},
+			},
+			Volumes: []core.Volume{
+				{
+					Name: "scan-results",
+					VolumeSource: core.VolumeSource{
+						PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+							ClaimName: pvcName,
+						},
+					},
+				},
+			},
+		},
+	}
+	if err = f.Client.Create(context.TODO(), arfFormatCheckerPod, nil); err != nil {
+		return fmt.Errorf("failed to create %s pod: %s", arfFormatCheckerPod.Name, err)
+	}
+	defer f.Client.Delete(context.TODO(), arfFormatCheckerPod)
+
+	pod := &core.Pod{}
+	key := types.NamespacedName{Name: arfFormatCheckerPod.Name, Namespace: namespace}
+	return wait.Poll(2*time.Second, 10*time.Second, func() (bool, error) {
+		if err := f.Client.Get(context.TODO(), key, pod); err != nil {
+			return false, nil
+		}
+		if pod.Status.Phase == core.PodSucceeded {
+			return true, nil
+		}
+		if pod.Status.Phase == core.PodFailed {
+			return false, fmt.Errorf("Scan results in the PVC are not in the required ARF format (scan: %s, pvc: %s, pod: %s)", scanName, pvcName, pod.Name)
+		}
+		return false, nil
+	})
+}
+
 func (f *Framework) AssertScanExists(name, namespace string) error {
 	cs := &compv1alpha1.ComplianceScan{}
 	defer f.logContainerOutput(namespace, name)
