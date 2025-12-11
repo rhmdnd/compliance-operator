@@ -891,8 +891,7 @@ func (f *Framework) createInvalidMachineConfigPool(n string) error {
 			log.Printf("error creating Machine Config Pool %s: %s... retrying after %s", n, err, interval)
 		})
 	if createErr != nil {
-		//return fmt.Errorf("failed to create Machine Config Pool %s: %w", n, createErr)
-		log.Printf("did not find machineconfig e2e-invalid, but still proceeding")
+		return fmt.Errorf("failed to create Machine Config Pool %s: %w", n, createErr)
 	}
 	return nil
 }
