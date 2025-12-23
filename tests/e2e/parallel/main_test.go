@@ -2068,19 +2068,11 @@ func TestScheduledSuite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// clean up
-	// Get new reference of suite
-	foundSuite := &compv1alpha1.ComplianceSuite{}
-	key := types.NamespacedName{Name: testSuite.Name, Namespace: testSuite.Namespace}
-	if err = f.Client.Get(context.TODO(), key, foundSuite); err != nil {
-		t.Fatal(err)
-	}
-
-	// Remove cronjob so it doesn't keep running while other tests are running
-	testSuiteCopy := foundSuite.DeepCopy()
-	updatedSchedule := ""
-	testSuiteCopy.Spec.Schedule = updatedSchedule
-	if err = f.Client.Update(context.TODO(), testSuiteCopy); err != nil {
+	// Remove cronjob so it doesn't keep running while other tests are
+	// running. Use Patch instead of Update to avoid resource version
+	// conflicts with the controller.
+	patch := []byte(`{"spec":{"schedule":""}}`)
+	if err = f.Client.Patch(context.TODO(), testSuite, client.RawPatch(types.MergePatchType, patch)); err != nil {
 		t.Fatal(err)
 	}
 
