@@ -4250,6 +4250,121 @@ func TestScanSettingBindingNoStorage(t *testing.T) {
 
 }
 
+func TestPlatformScanSettingBindingNoStorage(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+	objName := framework.GetObjNameFromTest(t)
+
+	// Create a TailoredProfile for a platform rule. This makes it safer to
+	// run in parallel since the TailoredProfile is specific to this test.
+	tpName := objName + "-tp"
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tpName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "Test platform scan with no storage",
+			Description: "A test tailored profile to test platform scans without storage",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      "ocp4-cluster-version-operator-exists",
+					Rationale: "Test platform scan with no storage",
+				},
+			},
+		},
+	}
+	if err := f.Client.Create(context.TODO(), tp, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+
+	if err := f.WaitForTailoredProfileStatus(f.OperatorNamespace, tpName, compv1alpha1.TailoredProfileStateReady); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a ScanSetting with storage disabled. This is also specific to
+	// this test since modifying the scanSetting will affect all scans
+	// bound to that setting.
+	scanSettingName := objName + "-setting"
+	falseValue := false
+	scanSetting := compv1alpha1.ScanSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scanSettingName,
+			Namespace: f.OperatorNamespace,
+		},
+		ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+			AutoApplyRemediations: false,
+		},
+		ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+			Debug: true,
+			RawResultStorage: compv1alpha1.RawResultStorageSettings{
+				Enabled: &falseValue,
+			},
+		},
+	}
+	if err := f.Client.Create(context.TODO(), &scanSetting, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), &scanSetting)
+
+	// Create a ScanSettingBinding
+	ssbName := objName
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ssbName,
+			Namespace: f.OperatorNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			Name:     scanSetting.Name,
+			Kind:     "ScanSetting",
+			APIGroup: "compliance.openshift.io/v1alpha1",
+		},
+	}
+	if err := f.Client.Create(context.TODO(), ssb, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	// When using SSB with TailoredProfile, the scan has same name as the TP
+	scanName := tpName
+	if err := f.WaitForScanStatus(f.OperatorNamespace, scanName, compv1alpha1.PhaseDone); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify scan has raw result storage disabled
+	scan := &compv1alpha1.ComplianceScan{}
+	scanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: scanName}
+	if err := f.Client.Get(context.TODO(), scanKey, scan); err != nil {
+		t.Fatal(err)
+	}
+
+	if scan.Spec.RawResultStorage.Enabled != nil && *scan.Spec.RawResultStorage.Enabled {
+		t.Fatal("Expected that the scan does not have raw result storage enabled")
+	}
+
+	// Verify no PVCs were created for the scan
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	if err := f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: scan.Name,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcList.Items) > 0 {
+		for _, pvc := range pvcList.Items {
+			t.Logf("Found unexpected PVC %s", pvc.Name)
+		}
+		t.Fatal("Expected not to find PVC associated with the scan.")
+	}
+}
+
 func TestScanSettingBindingTailoringManyEnablingRulePass(t *testing.T) {
 
 	t.Parallel()
