@@ -1595,11 +1595,13 @@ func (f *Framework) AssertScanHasValidPVCReferenceWithSize(scanName, size, names
 	return nil
 }
 
-func (f *Framework) AssertARFReportExistsInPVC(scanName, namespace string) error {
+func (f *Framework) AssertARFReportExistsInPVC(t *testing.T, scanName, namespace string) error {
 	pvcName, err := f.GetRawResultClaimNameFromScan(namespace, scanName)
 	if err != nil {
 		return err
 	}
+
+	t.Logf("scan=%s pvc=%s namespace=%s", scanName, pvcName, namespace)
 
 	arfFormatCheckerPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1611,8 +1613,8 @@ func (f *Framework) AssertARFReportExistsInPVC(scanName, namespace string) error
 			Containers: []core.Container{
 				{
 					Name:    "format-checker",
-					Image:   "registry.access.redhat.com/ubi8/ubi-minimal",
-					Command: []string{"/bin/bash", "-c", "ls /scan-results/0 2>/dev/null | grep -q '.xml.bzip2' && exit 0 || exit 1"},
+					Image:   "registry.access.redhat.com/ubi9/ubi-minimal",
+					Command: []string{"/bin/bash", "-c", "ls -la /scan-results/0 2>&1 || echo 'directory /scan-results/0 not found'; ls /scan-results/0 2>/dev/null | grep -q '.xml.bzip2' && exit 0 || exit 1"},
 					VolumeMounts: []core.VolumeMount{
 						{
 							Name:      "scan-results",
@@ -1640,10 +1642,13 @@ func (f *Framework) AssertARFReportExistsInPVC(scanName, namespace string) error
 
 	pod := &core.Pod{}
 	key := types.NamespacedName{Name: arfFormatCheckerPod.Name, Namespace: namespace}
-	return wait.Poll(2*time.Second, 10*time.Second, func() (bool, error) {
+	t.Logf("waiting for checker pod %s to complete", arfFormatCheckerPod.Name)
+	timeoutErr := wait.Poll(RetryInterval, time.Minute*2, func() (bool, error) {
 		if err := f.Client.Get(context.TODO(), key, pod); err != nil {
+			t.Logf("checker pod not yet available: %v", err)
 			return false, nil
 		}
+		t.Logf("checker pod %s phase=%s", pod.Name, pod.Status.Phase)
 		if pod.Status.Phase == core.PodSucceeded {
 			return true, nil
 		}
@@ -1652,6 +1657,10 @@ func (f *Framework) AssertARFReportExistsInPVC(scanName, namespace string) error
 		}
 		return false, nil
 	})
+	if timeoutErr != nil {
+		t.Logf("timed out waiting for checker pod %s (last phase: %s)", arfFormatCheckerPod.Name, pod.Status.Phase)
+	}
+	return timeoutErr
 }
 
 func (f *Framework) AssertScanExists(name, namespace string) error {
@@ -1962,7 +1971,7 @@ func GetRotationCheckerWorkload(namespace, rawResultName string) *core.Pod {
 			Containers: []core.Container{
 				{
 					Name:    "checker",
-					Image:   "registry.access.redhat.com/ubi8/ubi-minimal",
+					Image:   "registry.access.redhat.com/ubi9/ubi-minimal",
 					Command: []string{"/bin/bash", "-c", "ls /raw-results | grep -v 'lost+found'"},
 					VolumeMounts: []core.VolumeMount{
 						{
