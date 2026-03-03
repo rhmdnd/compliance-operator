@@ -16,11 +16,23 @@ var operatorManagedPrefixes = []string{
 	"complianceascode.io/",
 }
 
+// kubernetesReservedDomains are label/annotation key domain suffixes reserved
+// by Kubernetes itself (e.g. app.kubernetes.io/name, node.k8s.io/instance-type).
+var kubernetesReservedDomains = []string{
+	"kubernetes.io/",
+	"k8s.io/",
+}
+
 // IsOperatorManagedKey returns true if the given key is managed by the
-// compliance-operator (i.e. starts with a known operator prefix).
+// compliance-operator or reserved by Kubernetes.
 func IsOperatorManagedKey(key string) bool {
 	for _, prefix := range operatorManagedPrefixes {
 		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	for _, domain := range kubernetesReservedDomains {
+		if strings.Contains(key, domain) {
 			return true
 		}
 	}

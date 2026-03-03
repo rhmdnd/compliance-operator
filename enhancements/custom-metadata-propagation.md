@@ -3,9 +3,17 @@ title: custom-metadata-propagation
 authors:
   - Vincent056
 reviewers:
-  - TBD
+  - rhmdnd
+  - yuumasato
+  - xiaojiey
+  - Anna-Koudelkova
+  - taimurhafeez
 approvers:
-  - TBD
+  - rhmdnd
+  - yuumasato
+  - xiaojiey
+  - Anna-Koudelkova
+  - taimurhafeez
 api-approvers: None
 creation-date: 2026-02-24
 last-updated: 2026-02-24
@@ -227,6 +235,8 @@ Operator-managed prefixes:
 - `compliance.openshift.io/`
 - `complianceoperator.openshift.io/`
 - `complianceascode.io/`
+- `kubernetes.io/`
+- `k8s.io/`
 
 #### Component 2 — RBAC (`config/rbac/remediation_aggregator_role.yaml`)
 

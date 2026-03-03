@@ -22,7 +22,10 @@ func TestIsOperatorManagedKey(t *testing.T) {
 		{"break_severity", false},
 		{"internal-id", false},
 		{"custom.example.com/rating", false},
-		{"app.kubernetes.io/name", false},
+		{"app.kubernetes.io/name", true},
+		{"kubernetes.io/name", true},
+		{"k8s.io/component", true},
+		{"node.k8s.io/instance-type", true},
 		{"", false},
 	}
 

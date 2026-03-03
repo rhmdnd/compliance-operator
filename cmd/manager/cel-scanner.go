@@ -374,7 +374,10 @@ func (c *CelScanner) runPlatformScan() {
 		// Generate a DNS-friendly name from the scan name and rule ID
 		checkResultName := fmt.Sprintf("%s-%s", c.celConfig.ScanName, utils.IDToDNSFriendlyName(originalRule.Spec.ID))
 
-		// Extract custom labels/annotations from the CustomRule to propagate to the ComplianceCheckResult
+		// Extract custom (non-operator-managed) labels/annotations from the CustomRule.
+		// These are safe to pass through because GetCustomMetadata filters out all
+		// operator-managed prefixes, so they cannot overwrite operator labels/annotations
+		// when getCheckResultLabels/getCheckResultAnnotations merges them.
 		customLabels, customAnnotations := utils.GetCustomMetadata(originalRule.GetLabels(), originalRule.GetAnnotations())
 
 		compResult := &cmpv1alpha1.ComplianceCheckResult{
