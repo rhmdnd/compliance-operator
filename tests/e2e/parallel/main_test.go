@@ -938,7 +938,7 @@ func TestScanTailoredProfileHasDuplicateVariables(t *testing.T) {
 
 }
 
-func TestScanProducesRemediations(t *testing.T) {
+func TestScanProducesRemediationsAndLabels(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
 	bindingName := framework.GetObjNameFromTest(t)
@@ -953,9 +953,9 @@ func TestScanProducesRemediations(t *testing.T) {
 			Namespace: f.OperatorNamespace,
 		},
 		Spec: compv1alpha1.TailoredProfileSpec{
-			Title:       "TestScanProducesRemediations",
-			Description: "TestScanProducesRemediations",
-			Extends:     "ocp4-moderate",
+			Title:       t.Name(),
+			Description: t.Name(),
+			Extends:     "ocp4-e8",
 		},
 	}
 
@@ -1009,6 +1009,41 @@ func TestScanProducesRemediations(t *testing.T) {
 	for _, rem := range remList.Items {
 		if rem.Status.ApplicationState != compv1alpha1.RemediationNotApplied {
 			t.Fatal("expected all remediations are unapplied when scan finishes")
+		}
+	}
+	// Verify ComplianceCheckResult labels are correctly set
+	// Get all checks from the suite to verify label functionality
+	checkList := &compv1alpha1.ComplianceCheckResultList{}
+	err = f.Client.List(context.TODO(), checkList, inNs, withLabel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkList.Items) == 0 {
+		t.Fatal("expected at least one check result")
+	}
+	// Verify all required labels are present on every check result
+	// For some labels we can verify the exact value
+	labelsWithValues := map[string]string{
+		compv1alpha1.SuiteLabel:          bindingName,
+		compv1alpha1.ComplianceScanLabel: bindingName,
+	}
+	// For other labels we just verify they are present (non-empty)
+	labelsPresenceOnly := []string{
+		compv1alpha1.ComplianceCheckResultSeverityLabel,
+		compv1alpha1.ComplianceCheckResultStatusLabel,
+	}
+	for _, check := range checkList.Items {
+		// Check labels with specific expected values
+		for label, expected := range labelsWithValues {
+			if check.Labels[label] != expected {
+				t.Fatalf("check %s label %s: got %q, want %q", check.Name, label, check.Labels[label], expected)
+			}
+		}
+		// Check labels that must be present (non-empty)
+		for _, label := range labelsPresenceOnly {
+			if check.Labels[label] == "" {
+				t.Fatalf("check %s is missing label %s", check.Name, label)
+			}
 		}
 	}
 }
