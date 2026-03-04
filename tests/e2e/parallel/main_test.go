@@ -3979,6 +3979,12 @@ func TestScanSettingBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	rhcos4moderateprofile := &compv1alpha1.Profile{}
+	moderateKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: rhcosPb.Name + "-moderate"}
+	if err := f.Client.Get(context.TODO(), moderateKey, rhcos4moderateprofile); err != nil {
+		t.Fatal(err)
+	}
+
 	scanSettingName := objName + "-setting"
 	scanSetting := compv1alpha1.ScanSetting{
 		ObjectMeta: metav1.ObjectMeta{
@@ -4015,6 +4021,11 @@ func TestScanSettingBinding(t *testing.T) {
 				Kind:     "Profile",
 				APIGroup: "compliance.openshift.io/v1alpha1",
 			},
+			{
+				Name:     rhcos4moderateprofile.Name,
+				Kind:     "Profile",
+				APIGroup: "compliance.openshift.io/v1alpha1",
+			},
 		},
 		SettingsRef: &compv1alpha1.NamedObjectReference{
 			Name:     scanSetting.Name,
@@ -4041,7 +4052,7 @@ func TestScanSettingBinding(t *testing.T) {
 	}
 
 	if masterScan.Spec.Debug != true {
-		log.Println("Expected that the settings set debug to true in master scan")
+		t.Fatal("Expected that the settings set debug to true in master scan")
 	}
 
 	workerScanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: rhcos4e8profile.Name + "-worker"}
@@ -4051,7 +4062,27 @@ func TestScanSettingBinding(t *testing.T) {
 	}
 
 	if workerScan.Spec.Debug != true {
-		log.Println("Expected that the settings set debug to true in workers scan")
+		t.Fatal("Expected that the settings set debug to true in workers scan")
+	}
+
+	moderateMasterScanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: rhcos4moderateprofile.Name + "-master"}
+	moderateMasterScan := &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), moderateMasterScanKey, moderateMasterScan); err != nil {
+		t.Fatal(err)
+	}
+
+	if moderateMasterScan.Spec.Debug != true {
+		t.Fatal("Expected that the settings set debug to true in moderate master scan")
+	}
+
+	moderateWorkerScanKey := types.NamespacedName{Namespace: f.OperatorNamespace, Name: rhcos4moderateprofile.Name + "-worker"}
+	moderateWorkerScan := &compv1alpha1.ComplianceScan{}
+	if err := f.Client.Get(context.TODO(), moderateWorkerScanKey, moderateWorkerScan); err != nil {
+		t.Fatal(err)
+	}
+
+	if moderateWorkerScan.Spec.Debug != true {
+		t.Fatal("Expected that the settings set debug to true in moderate worker scan")
 	}
 
 	podList := &corev1.PodList{}
@@ -4060,9 +4091,10 @@ func TestScanSettingBinding(t *testing.T) {
 	})); err != nil {
 		t.Fatal(err)
 	}
-	// check if the scanning pod has properly been created and has priority class set
+	// check if the scanning pod has properly been created and has limits set
 	for _, pod := range podList.Items {
-		if strings.Contains(pod.Name, workerScan.Name) {
+		if strings.Contains(pod.Name, masterScan.Name) || strings.Contains(pod.Name, workerScan.Name) ||
+			strings.Contains(pod.Name, moderateMasterScan.Name) || strings.Contains(pod.Name, moderateWorkerScan.Name) {
 			if err := framework.WaitForPod(framework.CheckPodLimit(f.KubeClient, pod.Name, f.OperatorNamespace, defaultCpuLimit, testMemoryLimit)); err != nil {
 				t.Fatal(err)
 			}
