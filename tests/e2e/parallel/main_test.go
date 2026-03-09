@@ -5712,6 +5712,7 @@ func TestCELProfileBundle(t *testing.T) {
 	// Verify CEL profile has correct rules
 	expectedRules := []string{
 		pbName + "-check-default-namespace-has-no-pods",
+		pbName + "-check-default-sa-exists-in-kube-system",
 		pbName + "-check-namespaces-have-network-policies",
 		pbName + "-check-no-privileged-containers",
 	}
@@ -5735,6 +5736,7 @@ func TestCELProfileBundle(t *testing.T) {
 	// Verify CEL rules exist and have correct attributes
 	celRuleNames := []string{
 		"check-default-namespace-has-no-pods",
+		"check-default-sa-exists-in-kube-system",
 		"check-namespaces-have-network-policies",
 		"check-no-privileged-containers",
 	}
@@ -5751,10 +5753,10 @@ func TestCELProfileBundle(t *testing.T) {
 		if rule.ScannerType != compv1alpha1.ScannerTypeCEL {
 			t.Fatalf("rule %s: expected ScannerType CEL, got %s", fullRuleName, rule.ScannerType)
 		}
-		if rule.Expression == "" {
+		if rule.RulePayload.Expression == "" {
 			t.Fatalf("rule %s: expression should not be empty", fullRuleName)
 		}
-		if len(rule.Inputs) == 0 {
+		if len(rule.RulePayload.Inputs) == 0 {
 			t.Fatalf("rule %s: should have at least one input", fullRuleName)
 		}
 		if rule.Labels[compv1alpha1.ProfileBundleOwnerLabel] != pbName {
@@ -5766,7 +5768,7 @@ func TestCELProfileBundle(t *testing.T) {
 		if rule.Annotations[compv1alpha1.RuleProfileAnnotationKey] == "" {
 			t.Fatalf("rule %s: missing RuleProfileAnnotationKey", fullRuleName)
 		}
-		t.Logf("CEL rule %s verified: ScannerType=CEL, Expression present, %d inputs", fullRuleName, len(rule.Inputs))
+		t.Logf("CEL rule %s verified: ScannerType=CEL, Expression present, %d inputs", fullRuleName, len(rule.RulePayload.Inputs))
 	}
 
 	// Verify the privileged-containers rule has high severity
@@ -5856,6 +5858,7 @@ func TestCELProfileScan(t *testing.T) {
 	scanName := celProfileName
 	celRuleNames := []string{
 		"check-default-namespace-has-no-pods",
+		"check-default-sa-exists-in-kube-system",
 		"check-namespaces-have-network-policies",
 		"check-no-privileged-containers",
 	}
@@ -5875,5 +5878,5 @@ func TestCELProfileScan(t *testing.T) {
 		t.Logf("ComplianceCheckResult %s: status=%s, severity=%s", checkName, check.Status, check.Severity)
 	}
 
-	t.Log("CEL Profile scan test completed successfully - all 3 CEL rules produced check results")
+	t.Log("CEL Profile scan test completed successfully - all 4 CEL rules produced check results")
 }

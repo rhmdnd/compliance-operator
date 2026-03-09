@@ -158,8 +158,8 @@ func TestBundleToFile(t *testing.T) {
 		t.Fatalf("Unmarshaling output failed: %v", err)
 	}
 
-	if len(bundle.Rules) != 3 {
-		t.Errorf("Output rules = %d, want 3", len(bundle.Rules))
+	if len(bundle.Rules) != 4 {
+		t.Errorf("Output rules = %d, want 4", len(bundle.Rules))
 	}
 	if len(bundle.Profiles) != 1 {
 		t.Errorf("Output profiles = %d, want 1", len(bundle.Profiles))
