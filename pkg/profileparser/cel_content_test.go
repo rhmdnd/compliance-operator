@@ -45,8 +45,8 @@ func TestCELBundleContentUnmarshalFromBundler(t *testing.T) {
 		t.Fatalf("Failed to unmarshal CEL bundle: %v", err)
 	}
 
-	if len(bundle.Rules) != 3 {
-		t.Fatalf("Expected 3 rules, got %d", len(bundle.Rules))
+	if len(bundle.Rules) != 4 {
+		t.Fatalf("Expected 4 rules, got %d", len(bundle.Rules))
 	}
 
 	// Rules are sorted alphabetically by the bundler
@@ -70,6 +70,24 @@ func TestCELBundleContentUnmarshalFromBundler(t *testing.T) {
 		t.Errorf("input namespace = %q", r.Inputs[0].KubernetesInputSpec.ResourceNamespace)
 	}
 	if len(r.Controls["NIST-800-53"]) != 2 || len(r.Controls["CIS-OCP"]) != 1 {
+		t.Errorf("controls: %v", r.Controls)
+	}
+
+	// check-default-sa-exists-in-kube-system
+	r = ruleMap["check-default-sa-exists-in-kube-system"]
+	if r.ID != "check_default_sa_exists_in_kube_system" {
+		t.Errorf("rule id = %q", r.ID)
+	}
+	if r.Severity != "medium" {
+		t.Errorf("severity = %q", r.Severity)
+	}
+	if len(r.Inputs) != 1 || r.Inputs[0].Name != "serviceaccounts" {
+		t.Errorf("inputs: %v", r.Inputs)
+	}
+	if r.Inputs[0].KubernetesInputSpec.ResourceNamespace != "kube-system" {
+		t.Errorf("input namespace = %q", r.Inputs[0].KubernetesInputSpec.ResourceNamespace)
+	}
+	if len(r.Controls["NIST-800-53"]) != 1 || len(r.Controls["CIS-OCP"]) != 1 {
 		t.Errorf("controls: %v", r.Controls)
 	}
 
@@ -114,8 +132,8 @@ func TestCELBundleContentUnmarshalFromBundler(t *testing.T) {
 	if p.ProductType != "Platform" {
 		t.Errorf("productType = %q", p.ProductType)
 	}
-	if len(p.Rules) != 3 {
-		t.Fatalf("profile rules count = %d, want 3", len(p.Rules))
+	if len(p.Rules) != 4 {
+		t.Fatalf("profile rules count = %d, want 4", len(p.Rules))
 	}
 }
 
@@ -260,41 +278,61 @@ var _ = Describe("ParseCELBundle integration", func() {
 		profileRef1 := rule1.Annotations[cmpv1alpha1.RuleProfileAnnotationKey]
 		Expect(profileRef1).To(ContainSubstring(GetPrefixedName(pbName, "cel-e2e-test-profile")))
 
-		// --- Rule 2: check-namespaces-have-network-policies ---
+		// --- Rule 2: check-default-sa-exists-in-kube-system ---
 		rule2 := &cmpv1alpha1.Rule{}
 		Expect(client.Get(context.TODO(), types.NamespacedName{
-			Name:      GetPrefixedName(pbName, "check-namespaces-have-network-policies"),
+			Name:      GetPrefixedName(pbName, "check-default-sa-exists-in-kube-system"),
 			Namespace: testNamespace,
 		}, rule2)).To(Succeed())
 
 		Expect(rule2.RulePayload.ScannerType).To(Equal(cmpv1alpha1.ScannerTypeCEL))
-		Expect(rule2.RulePayload.ID).To(Equal("check_namespaces_have_network_policies"))
-		Expect(rule2.RulePayload.Inputs).To(HaveLen(2))
-		Expect(rule2.RulePayload.Inputs[0].Name).To(Equal("namespaces"))
-		Expect(rule2.RulePayload.Inputs[1].Name).To(Equal("networkpolicies"))
-		Expect(rule2.RulePayload.Inputs[1].KubernetesInputSpec.Group).To(Equal("networking.k8s.io"))
-		Expect(rule2.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("SC-7"))
-		Expect(rule2.Annotations["control.compliance.openshift.io/CIS-OCP"]).To(Equal("5.3.2"))
+		Expect(rule2.RulePayload.ID).To(Equal("check_default_sa_exists_in_kube_system"))
+		Expect(rule2.RulePayload.Severity).To(Equal("medium"))
+		Expect(rule2.RulePayload.Inputs).To(HaveLen(1))
+		Expect(rule2.RulePayload.Inputs[0].Name).To(Equal("serviceaccounts"))
+		Expect(rule2.RulePayload.Inputs[0].KubernetesInputSpec.ResourceNamespace).To(Equal("kube-system"))
+		Expect(rule2.RulePayload.FailureReason).To(ContainSubstring("default ServiceAccount"))
+		Expect(rule2.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("CM-6"))
+		Expect(rule2.Annotations["control.compliance.openshift.io/CIS-OCP"]).To(Equal("5.1.5"))
 
 		profileRef2 := rule2.Annotations[cmpv1alpha1.RuleProfileAnnotationKey]
 		Expect(profileRef2).To(ContainSubstring(GetPrefixedName(pbName, "cel-e2e-test-profile")))
 
-		// --- Rule 3: check-no-privileged-containers ---
+		// --- Rule 3: check-namespaces-have-network-policies ---
 		rule3 := &cmpv1alpha1.Rule{}
 		Expect(client.Get(context.TODO(), types.NamespacedName{
-			Name:      GetPrefixedName(pbName, "check-no-privileged-containers"),
+			Name:      GetPrefixedName(pbName, "check-namespaces-have-network-policies"),
 			Namespace: testNamespace,
 		}, rule3)).To(Succeed())
 
 		Expect(rule3.RulePayload.ScannerType).To(Equal(cmpv1alpha1.ScannerTypeCEL))
-		Expect(rule3.RulePayload.ID).To(Equal("check_no_privileged_containers"))
-		Expect(rule3.RulePayload.Severity).To(Equal("high"))
-		Expect(rule3.RulePayload.Inputs).To(HaveLen(1))
-		Expect(rule3.RulePayload.Inputs[0].Name).To(Equal("pods"))
-		Expect(rule3.RulePayload.FailureReason).To(ContainSubstring("privileged mode"))
-		Expect(rule3.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("AC-6(1)"))
-		Expect(rule3.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("AC-6(5)"))
-		Expect(rule3.Annotations["control.compliance.openshift.io/CIS-OCP"]).To(Equal("5.2.1"))
+		Expect(rule3.RulePayload.ID).To(Equal("check_namespaces_have_network_policies"))
+		Expect(rule3.RulePayload.Inputs).To(HaveLen(2))
+		Expect(rule3.RulePayload.Inputs[0].Name).To(Equal("namespaces"))
+		Expect(rule3.RulePayload.Inputs[1].Name).To(Equal("networkpolicies"))
+		Expect(rule3.RulePayload.Inputs[1].KubernetesInputSpec.Group).To(Equal("networking.k8s.io"))
+		Expect(rule3.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("SC-7"))
+		Expect(rule3.Annotations["control.compliance.openshift.io/CIS-OCP"]).To(Equal("5.3.2"))
+
+		profileRef3 := rule3.Annotations[cmpv1alpha1.RuleProfileAnnotationKey]
+		Expect(profileRef3).To(ContainSubstring(GetPrefixedName(pbName, "cel-e2e-test-profile")))
+
+		// --- Rule 4: check-no-privileged-containers ---
+		rule4 := &cmpv1alpha1.Rule{}
+		Expect(client.Get(context.TODO(), types.NamespacedName{
+			Name:      GetPrefixedName(pbName, "check-no-privileged-containers"),
+			Namespace: testNamespace,
+		}, rule4)).To(Succeed())
+
+		Expect(rule4.RulePayload.ScannerType).To(Equal(cmpv1alpha1.ScannerTypeCEL))
+		Expect(rule4.RulePayload.ID).To(Equal("check_no_privileged_containers"))
+		Expect(rule4.RulePayload.Severity).To(Equal("high"))
+		Expect(rule4.RulePayload.Inputs).To(HaveLen(1))
+		Expect(rule4.RulePayload.Inputs[0].Name).To(Equal("pods"))
+		Expect(rule4.RulePayload.FailureReason).To(ContainSubstring("privileged mode"))
+		Expect(rule4.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("AC-6(1)"))
+		Expect(rule4.Annotations["control.compliance.openshift.io/NIST-800-53"]).To(ContainSubstring("AC-6(5)"))
+		Expect(rule4.Annotations["control.compliance.openshift.io/CIS-OCP"]).To(Equal("5.2.1"))
 
 		// --- Profile: cel-e2e-test-profile ---
 		profile := &cmpv1alpha1.Profile{}
@@ -311,9 +349,10 @@ var _ = Describe("ParseCELBundle integration", func() {
 		Expect(profile.Labels).To(HaveKey(cmpv1alpha1.ProfileGuidLabel))
 		Expect(profile.Labels[cmpv1alpha1.ProfileBundleOwnerLabel]).To(Equal(pbName))
 
-		Expect(profile.Rules).To(HaveLen(3))
+		Expect(profile.Rules).To(HaveLen(4))
 		Expect(string(profile.Rules[0])).To(Equal(GetPrefixedName(pbName, "check-default-namespace-has-no-pods")))
-		Expect(string(profile.Rules[1])).To(Equal(GetPrefixedName(pbName, "check-namespaces-have-network-policies")))
-		Expect(string(profile.Rules[2])).To(Equal(GetPrefixedName(pbName, "check-no-privileged-containers")))
+		Expect(string(profile.Rules[1])).To(Equal(GetPrefixedName(pbName, "check-default-sa-exists-in-kube-system")))
+		Expect(string(profile.Rules[2])).To(Equal(GetPrefixedName(pbName, "check-namespaces-have-network-policies")))
+		Expect(string(profile.Rules[3])).To(Equal(GetPrefixedName(pbName, "check-no-privileged-containers")))
 	})
 })

@@ -66,6 +66,7 @@ type ProfileBundleStatus struct {
 // +kubebuilder:resource:path=profilebundles,scope=Namespaced,shortName=pb
 // +kubebuilder:printcolumn:name="ContentImage",type="string",JSONPath=`.spec.contentImage`
 // +kubebuilder:printcolumn:name="ContentFile",type="string",JSONPath=`.spec.contentFile`
+// +kubebuilder:printcolumn:name="CELContentFile",type="string",JSONPath=`.spec.celContentFile`
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.dataStreamStatus`
 type ProfileBundle struct {
 	metav1.TypeMeta   `json:",inline"`

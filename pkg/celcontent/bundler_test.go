@@ -19,13 +19,14 @@ func TestBundleFromDirs(t *testing.T) {
 		t.Fatalf("BundleFromDirs failed: %v", err)
 	}
 
-	if len(bundle.Rules) != 3 {
-		t.Fatalf("Expected 3 rules, got %d", len(bundle.Rules))
+	if len(bundle.Rules) != 4 {
+		t.Fatalf("Expected 4 rules, got %d", len(bundle.Rules))
 	}
 
 	// Rules are sorted by name
 	expectedNames := []string{
 		"check-default-namespace-has-no-pods",
+		"check-default-sa-exists-in-kube-system",
 		"check-namespaces-have-network-policies",
 		"check-no-privileged-containers",
 	}
@@ -41,8 +42,8 @@ func TestBundleFromDirs(t *testing.T) {
 	if bundle.Profiles[0].Name != "cel-e2e-test-profile" {
 		t.Errorf("Profile name = %q, want %q", bundle.Profiles[0].Name, "cel-e2e-test-profile")
 	}
-	if len(bundle.Profiles[0].Rules) != 3 {
-		t.Errorf("Profile rules count = %d, want 3", len(bundle.Profiles[0].Rules))
+	if len(bundle.Profiles[0].Rules) != 4 {
+		t.Errorf("Profile rules count = %d, want 4", len(bundle.Profiles[0].Rules))
 	}
 }
 
@@ -92,6 +93,31 @@ func TestBundleFromDirs_RuleFields(t *testing.T) {
 		}
 		if r.Inputs[1].KubernetesInputSpec.Group != "networking.k8s.io" {
 			t.Errorf("Input group = %q", r.Inputs[1].KubernetesInputSpec.Group)
+		}
+	})
+
+	t.Run("check-default-sa-exists-in-kube-system", func(t *testing.T) {
+		r := ruleMap["check-default-sa-exists-in-kube-system"]
+		if r.ID != "check_default_sa_exists_in_kube_system" {
+			t.Errorf("ID = %q", r.ID)
+		}
+		if r.Severity != "medium" {
+			t.Errorf("Severity = %q", r.Severity)
+		}
+		if len(r.Inputs) != 1 {
+			t.Fatalf("Inputs count = %d, want 1", len(r.Inputs))
+		}
+		if r.Inputs[0].Name != "serviceaccounts" {
+			t.Errorf("Input name = %q", r.Inputs[0].Name)
+		}
+		if r.Inputs[0].KubernetesInputSpec.ResourceNamespace != "kube-system" {
+			t.Errorf("Input namespace = %q", r.Inputs[0].KubernetesInputSpec.ResourceNamespace)
+		}
+		if len(r.Controls["NIST-800-53"]) != 1 {
+			t.Errorf("NIST controls = %d", len(r.Controls["NIST-800-53"]))
+		}
+		if len(r.Controls["CIS-OCP"]) != 1 {
+			t.Errorf("CIS controls = %d", len(r.Controls["CIS-OCP"]))
 		}
 	})
 
