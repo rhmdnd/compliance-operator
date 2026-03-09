@@ -5880,3 +5880,111 @@ func TestCELProfileScan(t *testing.T) {
 
 	t.Log("CEL Profile scan test completed successfully - all 4 CEL rules produced check results")
 }
+
+func TestCELWithXCCDFProfileScan(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+
+	testName := framework.GetObjNameFromTest(t)
+	pbName := testName + "-pb"
+	ssbName := testName + "-ssb"
+	testNamespace := f.OperatorNamespace
+	celContentImage := brokenContentImagePath + ":cel_content"
+
+	pb, err := f.CreateProfileBundleWithCEL(pbName, celContentImage, framework.OcpContentFile, framework.CelContentFile)
+	if err != nil {
+		t.Fatalf("failed to create ProfileBundle: %s", err)
+	}
+	defer f.Client.Delete(context.TODO(), pb)
+
+	if err := f.WaitForProfileBundleStatus(pbName, compv1alpha1.DataStreamValid); err != nil {
+		t.Fatalf("ProfileBundle did not reach VALID state: %s", err)
+	}
+
+	celProfileName := pbName + "-cel-e2e-test-profile"
+	xccdfProfileName := pbName + "-cis"
+
+	// Bind both a CEL profile and an XCCDF profile from the same bundle in one SSB
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ssbName,
+			Namespace: testNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "Profile",
+				Name:     celProfileName,
+			},
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "Profile",
+				Name:     xccdfProfileName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ScanSettingBinding: %v", err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	err = f.WaitForScanSettingBindingStatus(testNamespace, ssbName, compv1alpha1.ScanSettingBindingPhaseReady)
+	if err != nil {
+		t.Fatalf("ScanSettingBinding did not become ready: %v", err)
+	}
+	t.Log("ScanSettingBinding is ready with CEL + XCCDF profiles")
+
+	suiteName := ssbName
+
+	err = f.WaitForSuiteScansStatus(testNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		err = f.WaitForSuiteScansStatus(testNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultCompliant)
+		if err != nil {
+			t.Fatalf("Suite did not complete: %v", err)
+		}
+	}
+	t.Log("Suite completed")
+
+	// Verify CEL scan produced check results
+	celRuleNames := []string{
+		"check-default-namespace-has-no-pods",
+		"check-default-sa-exists-in-kube-system",
+		"check-namespaces-have-network-policies",
+		"check-no-privileged-containers",
+	}
+	for _, ruleName := range celRuleNames {
+		checkName := fmt.Sprintf("%s-%s", celProfileName, ruleName)
+		check := &compv1alpha1.ComplianceCheckResult{}
+		err = f.Client.Get(context.TODO(), types.NamespacedName{
+			Name: checkName, Namespace: testNamespace,
+		}, check)
+		if err != nil {
+			t.Fatalf("CEL ComplianceCheckResult %s not found: %v", checkName, err)
+		}
+		if check.Status != compv1alpha1.CheckResultPass && check.Status != compv1alpha1.CheckResultFail {
+			t.Fatalf("CEL check %s has unexpected status: %s", checkName, check.Status)
+		}
+		t.Logf("CEL check %s: status=%s", checkName, check.Status)
+	}
+
+	// Verify XCCDF scan also produced check results
+	xccdfChecks := &compv1alpha1.ComplianceCheckResultList{}
+	err = f.Client.List(context.TODO(), xccdfChecks, client.MatchingLabels{
+		"compliance.openshift.io/scan-name": xccdfProfileName,
+	})
+	if err != nil {
+		t.Fatalf("Failed to list XCCDF check results: %v", err)
+	}
+	if len(xccdfChecks.Items) == 0 {
+		t.Fatalf("No XCCDF ComplianceCheckResults found for scan %s", xccdfProfileName)
+	}
+	t.Logf("XCCDF scan %s produced %d check results", xccdfProfileName, len(xccdfChecks.Items))
+
+	t.Log("Mixed CEL + XCCDF scan test completed successfully")
+}
