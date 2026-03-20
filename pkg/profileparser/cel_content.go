@@ -62,6 +62,8 @@ type CELProfileContent struct {
 	// Stored in Profile.Values so the CEL scanner can load them.
 	// +optional
 	Values      []string `json:"values,omitempty"`
+	// +optional
+	Version     string   `json:"version,omitempty"`
 }
 
 // ParseCELBundle reads a CEL content YAML file and creates Rule and Profile CRs.
@@ -224,6 +226,7 @@ func ParseCELBundle(celPath string, pb *cmpv1alpha1.ProfileBundle, pcfg *ParserC
 					Description: celProfile.Description,
 					Rules:       selectedRules,
 					Values:      selectedValues,
+					Version:     celProfile.Version,
 				},
 			}
 			if celProfile.ProductName != "" {

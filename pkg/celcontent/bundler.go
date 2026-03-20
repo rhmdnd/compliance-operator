@@ -55,6 +55,7 @@ type CELProfileContent struct {
 	ProductName string   `json:"productName,omitempty"`
 	Rules       []string `json:"rules"`
 	Values      []string `json:"values,omitempty"`
+	Version     string   `json:"version,omitempty"`
 }
 
 // CELBundleContent is the combined output: all rules and profiles in a single
