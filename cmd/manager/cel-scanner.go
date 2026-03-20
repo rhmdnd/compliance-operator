@@ -284,6 +284,8 @@ func runCelScanner(cmd *cobra.Command, args []string) {
 type celRuleWrapper struct {
 	scannerRule scanner.Rule
 	payload     *cmpv1alpha1.RulePayload
+	labels      map[string]string
+	annotations map[string]string
 }
 
 // runPlatformScan runs the platform scan based on the profile and inputs.
@@ -401,7 +403,7 @@ func (c *CelScanner) runPlatformScan() {
 		// Extract custom (non-operator-managed) labels/annotations from the CustomRule.
 		// These will be merged into the check result after operator-managed keys are
 		// set, using MergeCustomMetadata (operator keys take precedence).
-		cl, ca := utils.GetCustomMetadata(originalRule.GetLabels(), originalRule.GetAnnotations())
+		cl, ca := utils.GetCustomMetadata(rw.labels, rw.annotations)
 		customMetadataByName[checkResultName] = customMeta{labels: cl, annotations: ca}
 
 		compResult := &cmpv1alpha1.ComplianceCheckResult{
@@ -634,6 +636,8 @@ func (c *CelScanner) getSelectedCELRules(tp *cmpv1alpha1.TailoredProfile) ([]cel
 			selectedRules = append(selectedRules, celRuleWrapper{
 				scannerRule: rule,
 				payload:     &rule.Spec.RulePayload,
+				labels:      rule.GetLabels(),
+				annotations: rule.GetAnnotations(),
 			})
 		} else {
 			// Default or explicit kind:Rule
@@ -655,6 +659,8 @@ func (c *CelScanner) getSelectedCELRules(tp *cmpv1alpha1.TailoredProfile) ([]cel
 			selectedRules = append(selectedRules, celRuleWrapper{
 				scannerRule: rule,
 				payload:     &rule.RulePayload,
+				labels:      rule.GetLabels(),
+				annotations: rule.GetAnnotations(),
 			})
 		}
 	}
@@ -695,6 +701,8 @@ func (c *CelScanner) getCELRulesFromProfile(profileName, namespace string) ([]ce
 		selectedRules = append(selectedRules, celRuleWrapper{
 			scannerRule: rule,
 			payload:     &rule.RulePayload,
+			labels:      rule.GetLabels(),
+			annotations: rule.GetAnnotations(),
 		})
 	}
 

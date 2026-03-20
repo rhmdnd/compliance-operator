@@ -2815,12 +2815,10 @@ func TestCustomRuleMetadataPropagation(t *testing.T) {
 		},
 		Spec: compv1alpha1.CustomRuleSpec{
 			RulePayload: compv1alpha1.RulePayload{
-				ID:          customRuleName,
-				Title:       "Metadata Propagation Test Rule",
-				Description: "A rule that always passes, used to verify custom metadata propagation",
-				Severity:    "medium",
-			},
-			CustomRulePayload: compv1alpha1.CustomRulePayload{
+				ID:            customRuleName,
+				Title:         "Metadata Propagation Test Rule",
+				Description:   "A rule that always passes, used to verify custom metadata propagation",
+				Severity:      "medium",
 				ScannerType:   compv1alpha1.ScannerTypeCEL,
 				Expression:    "namespaces.items.size() > 0",
 				FailureReason: "This rule should always pass",
