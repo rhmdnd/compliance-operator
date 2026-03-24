@@ -170,7 +170,12 @@ func ParseCELBundle(celPath string, pb *cmpv1alpha1.ProfileBundle, pcfg *ParserC
 				if !ok {
 					return fmt.Errorf("unexpected type")
 				}
-				foundRule.Annotations = updatedRule.Annotations
+				if foundRule.Annotations == nil {
+					foundRule.Annotations = make(map[string]string)
+				}
+				for k, v := range updatedRule.Annotations {
+					foundRule.Annotations[k] = v
+				}
 				foundRule.RulePayload = *updatedRule.RulePayload.DeepCopy()
 				return pcfg.Client.Update(context.TODO(), foundRule)
 			}); err != nil {
