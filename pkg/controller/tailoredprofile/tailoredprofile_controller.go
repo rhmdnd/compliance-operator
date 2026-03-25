@@ -140,10 +140,6 @@ func (r *ReconcileTailoredProfile) Reconcile(ctx context.Context, request reconc
 	}
 
 	if instance.Spec.Extends != "" {
-		if isCELBased {
-			err = r.handleTailoredProfileStatusError(instance, fmt.Errorf("CEL rules (CustomRules or CEL-typed Rules) are not supported with extends"))
-			return reconcile.Result{}, err
-		}
 		var pbgetErr error
 		p, pb, pbgetErr = r.getProfileInfoFromExtends(instance)
 		if pbgetErr != nil && !common.IsRetriable(pbgetErr) {
@@ -151,6 +147,16 @@ func (r *ReconcileTailoredProfile) Reconcile(ctx context.Context, request reconc
 			return reconcile.Result{}, err
 		} else if pbgetErr != nil {
 			return reconcile.Result{}, pbgetErr
+		}
+
+		extendedProfileIsCEL := p.GetAnnotations()[cmpv1alpha1.ScannerTypeAnnotation] == string(cmpv1alpha1.ScannerTypeCEL)
+		if isCELBased && !extendedProfileIsCEL {
+			err = r.handleTailoredProfileStatusError(instance, fmt.Errorf("CEL rules (CustomRules or CEL-typed Rules) cannot extend an OpenSCAP profile"))
+			return reconcile.Result{}, err
+		}
+		if !isCELBased && extendedProfileIsCEL {
+			err = r.handleTailoredProfileStatusError(instance, fmt.Errorf("OpenSCAP rules cannot extend a CEL-based profile"))
+			return reconcile.Result{}, err
 		}
 
 		needsAnnotation := false

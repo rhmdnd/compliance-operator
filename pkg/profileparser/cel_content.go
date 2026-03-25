@@ -96,7 +96,7 @@ func ParseCELBundle(celPath string, pb *cmpv1alpha1.ProfileBundle, pcfg *ParserC
 
 	nonce := names.SimpleNameGenerator.GenerateName(fmt.Sprintf("pb-cel-%s", pb.Name))
 
-	errChan := make(chan error)
+	errChan := make(chan error, 2)
 	done := make(chan string)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -268,7 +268,6 @@ func ParseCELBundle(celPath string, pb *cmpv1alpha1.ProfileBundle, pcfg *ParserC
 	case <-done:
 		return nil
 	case err := <-errChan:
-		close(errChan)
 		return err
 	}
 }

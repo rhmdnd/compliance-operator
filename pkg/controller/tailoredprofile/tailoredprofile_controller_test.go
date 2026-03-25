@@ -1947,7 +1947,7 @@ var _ = Describe("TailoredprofileController", func() {
 			})
 		})
 
-		Context("CEL Rule with extends (not supported)", func() {
+		Context("CEL Rule extending an OpenSCAP profile (not supported)", func() {
 			BeforeEach(func() {
 				celRule := &compv1alpha1.Rule{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1998,7 +1998,7 @@ var _ = Describe("TailoredprofileController", func() {
 				Expect(err).To(BeNil())
 				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
 				Expect(tp.Status.ErrorMessage).To(ContainSubstring("CEL rules"))
-				Expect(tp.Status.ErrorMessage).To(ContainSubstring("not supported with extends"))
+				Expect(tp.Status.ErrorMessage).To(ContainSubstring("cannot extend an OpenSCAP profile"))
 			})
 		})
 	})
