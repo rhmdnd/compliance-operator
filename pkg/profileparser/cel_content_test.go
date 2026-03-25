@@ -8,6 +8,7 @@ import (
 
 	cmpv1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
 	"github.com/ComplianceAsCode/compliance-operator/pkg/celcontent"
+	"github.com/ComplianceAsCode/compliance-operator/pkg/utils/celvalidation"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -225,6 +226,158 @@ func TestCELBundleToRulePayload(t *testing.T) {
 	}
 	if len(payload.Inputs) != 1 {
 		t.Fatalf("Expected 1 input, got %d", len(payload.Inputs))
+	}
+}
+
+func TestCELBundleCISVMExtension(t *testing.T) {
+	data, err := os.ReadFile("../../tests/data/cel-cis-vm-extension-bundle.yaml")
+	if err != nil {
+		t.Fatalf("Failed to read CIS VM bundle: %v", err)
+	}
+
+	var bundle CELBundleContent
+	if err := yaml.Unmarshal(data, &bundle); err != nil {
+		t.Fatalf("Failed to unmarshal CIS VM bundle: %v", err)
+	}
+
+	// --- Profile-level checks ---
+	if len(bundle.Profiles) != 1 {
+		t.Fatalf("Expected 1 profile, got %d", len(bundle.Profiles))
+	}
+	profile := bundle.Profiles[0]
+	if profile.Name != "cis-vm-extension" {
+		t.Errorf("profile name = %q, want cis-vm-extension", profile.Name)
+	}
+	if profile.ID != "cis-vm-extension" {
+		t.Errorf("profile id = %q, want cis-vm-extension", profile.ID)
+	}
+	if profile.ProductType != "Platform" {
+		t.Errorf("profile productType = %q, want Platform", profile.ProductType)
+	}
+	if profile.Title == "" {
+		t.Error("profile title is empty")
+	}
+	if profile.Description == "" {
+		t.Error("profile description is empty")
+	}
+
+	// --- Rule count and profile references ---
+	expectedRules := []string{
+		"kubevirt-enforce-trusted-tls-registries",
+		"kubevirt-no-permitted-host-devices",
+		"kubevirt-no-vms-overcommitting-guest-memory",
+		"kubevirt-nonroot-feature-gate-is-enabled",
+		"kubevirt-persistent-reservation-disabled",
+	}
+	if len(bundle.Rules) != len(expectedRules) {
+		t.Fatalf("Expected %d rules, got %d", len(expectedRules), len(bundle.Rules))
+	}
+	if len(profile.Rules) != len(expectedRules) {
+		t.Fatalf("Profile references %d rules, expected %d", len(profile.Rules), len(expectedRules))
+	}
+
+	ruleMap := make(map[string]CELRuleContent, len(bundle.Rules))
+	for _, r := range bundle.Rules {
+		ruleMap[r.Name] = r
+	}
+	for _, name := range expectedRules {
+		if _, ok := ruleMap[name]; !ok {
+			t.Errorf("expected rule %q not found in bundle", name)
+		}
+	}
+	for _, name := range profile.Rules {
+		if _, ok := ruleMap[name]; !ok {
+			t.Errorf("profile references rule %q not found in bundle rules", name)
+		}
+	}
+
+	// --- Detailed per-rule validation ---
+	type ruleExpect struct {
+		id, severity, checkType string
+		inputName, apiVersion   string
+		hasResourceName         bool
+		hasResourceNamespace    bool
+	}
+	ruleExpects := map[string]ruleExpect{
+		"kubevirt-enforce-trusted-tls-registries": {
+			id: "kubevirt-enforce-trusted-tls-registries", severity: "medium", checkType: "Platform",
+			inputName: "hco", apiVersion: "hco.kubevirt.io/v1beta1",
+			hasResourceName: true, hasResourceNamespace: true,
+		},
+		"kubevirt-no-permitted-host-devices": {
+			id: "kubevirt-no-permitted-host-devices", severity: "medium", checkType: "Platform",
+			inputName: "hcoList", apiVersion: "hco.kubevirt.io/v1beta1",
+		},
+		"kubevirt-no-vms-overcommitting-guest-memory": {
+			id: "kubevirt-no-vms-overcommitting-guest-memory", severity: "medium", checkType: "Platform",
+			inputName: "vms", apiVersion: "kubevirt.io/v1",
+		},
+		"kubevirt-nonroot-feature-gate-is-enabled": {
+			id: "kubevirt-nonroot-feature-gate-is-enabled", severity: "medium", checkType: "Platform",
+			inputName: "hcoList", apiVersion: "hco.kubevirt.io/v1beta1",
+		},
+		"kubevirt-persistent-reservation-disabled": {
+			id: "kubevirt-persistent-reservation-disabled", severity: "medium", checkType: "Platform",
+			inputName: "hcoList", apiVersion: "hco.kubevirt.io/v1beta1",
+		},
+	}
+
+	for name, exp := range ruleExpects {
+		r := ruleMap[name]
+		if r.ID != exp.id {
+			t.Errorf("[%s] id = %q, want %q", name, r.ID, exp.id)
+		}
+		if r.Severity != exp.severity {
+			t.Errorf("[%s] severity = %q, want %q", name, r.Severity, exp.severity)
+		}
+		if r.CheckType != exp.checkType {
+			t.Errorf("[%s] checkType = %q, want %q", name, r.CheckType, exp.checkType)
+		}
+		if r.Title == "" {
+			t.Errorf("[%s] title is empty", name)
+		}
+		if r.Description == "" {
+			t.Errorf("[%s] description is empty", name)
+		}
+		if r.Rationale == "" {
+			t.Errorf("[%s] rationale is empty", name)
+		}
+		if r.Expression == "" {
+			t.Errorf("[%s] expression is empty", name)
+		}
+		if r.FailureReason == "" {
+			t.Errorf("[%s] failureReason is empty", name)
+		}
+		if r.Instructions == "" {
+			t.Errorf("[%s] instructions is empty", name)
+		}
+		if len(r.Inputs) != 1 {
+			t.Errorf("[%s] expected 1 input, got %d", name, len(r.Inputs))
+			continue
+		}
+		if r.Inputs[0].Name != exp.inputName {
+			t.Errorf("[%s] input name = %q, want %q", name, r.Inputs[0].Name, exp.inputName)
+		}
+		if r.Inputs[0].KubernetesInputSpec.APIVersion != exp.apiVersion {
+			t.Errorf("[%s] apiVersion = %q, want %q", name, r.Inputs[0].KubernetesInputSpec.APIVersion, exp.apiVersion)
+		}
+		if exp.hasResourceName && r.Inputs[0].KubernetesInputSpec.ResourceName == "" {
+			t.Errorf("[%s] expected resourceName to be set", name)
+		}
+		if exp.hasResourceNamespace && r.Inputs[0].KubernetesInputSpec.ResourceNamespace == "" {
+			t.Errorf("[%s] expected resourceNamespace to be set", name)
+		}
+	}
+
+	// --- Validate all CEL expressions compile ---
+	for _, rule := range bundle.Rules {
+		payload := cmpv1alpha1.RulePayload{
+			Expression: rule.Expression,
+			Inputs:     rule.Inputs,
+		}
+		if err := celvalidation.ValidateCELRule(rule.Name, &payload); err != nil {
+			t.Errorf("CEL validation failed for rule %q: %v", rule.Name, err)
+		}
 	}
 }
 
