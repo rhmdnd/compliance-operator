@@ -205,6 +205,11 @@ Updated to detect CEL scanner type from `Rule.scannerType` field when
 `kind: Rule` is used in `enableRules`, in addition to the existing
 `kind: CustomRule` detection. Enforces the single-type-per-profile assumption.
 
+`TailoredProfile` with `extends` is now supported for CEL-based profiles.
+A TP can extend a CEL `Profile` and use `disableRules` to remove rules or
+`enableRules` to add CEL rules. Cross-type mixing is rejected: CEL rules
+cannot extend an OpenSCAP profile and vice versa.
+
 #### ScanSettingBinding Controller
 
 Updated to handle CEL Profiles:
@@ -222,6 +227,9 @@ Updated `cmd/manager/cel-scanner.go`:
   referenced in the `ComplianceScan`.
 - Existing TailoredProfile path (`--tailoring=true`): updated to load `Rule`
   CRs (with `scannerType=CEL`) in addition to `CustomRule` CRs.
+- When a `TailoredProfile` uses `extends`, the scanner loads the base
+  profile's rules, applies `disableRules` to filter them out, then appends
+  `enableRules`. Duplicates between base and enabled rules are skipped.
 - Result mapping generalized to use the `scanner.Rule` interface.
 
 #### ComplianceScan Pod
