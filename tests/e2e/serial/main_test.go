@@ -2617,3 +2617,142 @@ func TestStrictNodeScanConfiguration(t *testing.T) {
 		time.Sleep(framework.RetryInterval)
 }
 }
+
+func TestOpenSCAPRuleMetadataPropagation(t *testing.T) {
+	f := framework.Global
+
+	testName := framework.GetObjNameFromTest(t)
+	tpName := fmt.Sprintf("%s-tp", testName)
+	ssbName := fmt.Sprintf("%s-ssb", testName)
+	testNamespace := f.OperatorNamespace
+	ruleName := "ocp4-api-server-audit-log-path"
+
+	var rule compv1alpha1.Rule
+	err := f.Client.Get(context.TODO(), types.NamespacedName{
+		Name:      ruleName,
+		Namespace: testNamespace,
+	}, &rule)
+	if err != nil {
+		t.Fatalf("Failed to get Rule %s: %v", ruleName, err)
+	}
+
+	customLabels := map[string]string{
+		"e2e-business-unit": "security-ops",
+		"e2e-risk-tier":     "high",
+	}
+	customAnnotations := map[string]string{
+		"e2e-internal-id":   "SEC-9001",
+		"e2e-audit-contact": "compliance-team",
+	}
+
+	if rule.Labels == nil {
+		rule.Labels = make(map[string]string)
+	}
+	for k, v := range customLabels {
+		rule.Labels[k] = v
+	}
+	if rule.Annotations == nil {
+		rule.Annotations = make(map[string]string)
+	}
+	for k, v := range customAnnotations {
+		rule.Annotations[k] = v
+	}
+
+	err = f.Client.Update(context.TODO(), &rule)
+	if err != nil {
+		t.Fatalf("Failed to add custom metadata to Rule: %v", err)
+	}
+	defer func() {
+		var cleanupRule compv1alpha1.Rule
+		if getErr := f.Client.Get(context.TODO(), types.NamespacedName{
+			Name: ruleName, Namespace: testNamespace,
+		}, &cleanupRule); getErr == nil {
+			for k := range customLabels {
+				delete(cleanupRule.Labels, k)
+			}
+			for k := range customAnnotations {
+				delete(cleanupRule.Annotations, k)
+			}
+			_ = f.Client.Update(context.TODO(), &cleanupRule)
+		}
+	}()
+
+	tp := &compv1alpha1.TailoredProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tpName,
+			Namespace: testNamespace,
+		},
+		Spec: compv1alpha1.TailoredProfileSpec{
+			Title:       "OpenSCAP Metadata Propagation Test",
+			Description: "Tests that custom metadata on Rules propagates through the aggregator",
+			Extends:     "ocp4-cis",
+			EnableRules: []compv1alpha1.RuleReferenceSpec{
+				{
+					Name:      ruleName,
+					Rationale: "Verify metadata propagation via OpenSCAP aggregator",
+				},
+			},
+		},
+	}
+
+	err = f.Client.Create(context.TODO(), tp, nil)
+	if err != nil {
+		t.Fatalf("Failed to create TailoredProfile: %v", err)
+	}
+	defer f.Client.Delete(context.TODO(), tp)
+
+	ssb := &compv1alpha1.ScanSettingBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ssbName,
+			Namespace: testNamespace,
+		},
+		Profiles: []compv1alpha1.NamedObjectReference{
+			{
+				APIGroup: "compliance.openshift.io/v1alpha1",
+				Kind:     "TailoredProfile",
+				Name:     tpName,
+			},
+		},
+		SettingsRef: &compv1alpha1.NamedObjectReference{
+			APIGroup: "compliance.openshift.io/v1alpha1",
+			Kind:     "ScanSetting",
+			Name:     "default",
+		},
+	}
+
+	err = f.Client.Create(context.TODO(), ssb, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ScanSettingBinding: %v", err)
+	}
+	defer f.Client.Delete(context.TODO(), ssb)
+
+	err = f.WaitForSuiteScansStatusAnyResult(testNamespace, ssbName, compv1alpha1.PhaseDone, compv1alpha1.ResultNotApplicable, compv1alpha1.ResultNonCompliant)
+	if err != nil {
+		t.Fatalf("Scan did not complete: %v", err)
+	}
+
+	checkResultName := fmt.Sprintf("%s-%s", tpName, "api-server-audit-log-path")
+	var checkResult compv1alpha1.ComplianceCheckResult
+	err = f.Client.Get(context.TODO(), types.NamespacedName{
+		Name:      checkResultName,
+		Namespace: testNamespace,
+	}, &checkResult)
+	if err != nil {
+		t.Fatalf("Failed to get ComplianceCheckResult %s: %v", checkResultName, err)
+	}
+
+	for k, v := range customLabels {
+		if checkResult.Labels[k] != v {
+			t.Errorf("expected label %s=%s, got %q", k, v, checkResult.Labels[k])
+		}
+	}
+	for k, v := range customAnnotations {
+		if checkResult.Annotations[k] != v {
+			t.Errorf("expected annotation %s=%s, got %q", k, v, checkResult.Annotations[k])
+		}
+	}
+
+	if checkResult.Labels[compv1alpha1.ComplianceScanLabel] != tpName {
+		t.Errorf("operator-managed scan label should not be overridden, got %q", checkResult.Labels[compv1alpha1.ComplianceScanLabel])
+	}
+}
