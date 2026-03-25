@@ -85,3 +85,4 @@ tests/_setup
 tests/e2e-test.log
 # Build artifacts from cmd/
 /cel-bundler
+cel-bundle.yaml
