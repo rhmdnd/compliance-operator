@@ -1947,6 +1947,84 @@ var _ = Describe("TailoredprofileController", func() {
 			})
 		})
 
+		Context("CEL Rule extending a CEL profile with DisableRules", func() {
+			BeforeEach(func() {
+				celProfile := &compv1alpha1.Profile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cel-profile",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							compv1alpha1.ScannerTypeAnnotation: string(compv1alpha1.ScannerTypeCEL),
+							compv1alpha1.ProductTypeAnnotation: string(compv1alpha1.ScanTypePlatform),
+						},
+						Labels: map[string]string{
+							compv1alpha1.ProfileBundleOwnerLabel: "pb-1",
+							compv1alpha1.ProfileGuidLabel:        "cel-profile-guid",
+						},
+					},
+					ProfilePayload: compv1alpha1.ProfilePayload{
+						ID:    "cel_profile_1",
+						Rules: []compv1alpha1.ProfileRule{"cel-rule-1"},
+					},
+				}
+				crefErr := controllerutil.SetControllerReference(
+					&compv1alpha1.ProfileBundle{ObjectMeta: metav1.ObjectMeta{Name: "pb-1", Namespace: namespace}},
+					celProfile, r.Scheme)
+				Expect(crefErr).To(BeNil())
+				createErr := r.Client.Create(ctx, celProfile)
+				Expect(createErr).To(BeNil())
+
+				celRule := &compv1alpha1.Rule{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      celRuleName,
+						Namespace: namespace,
+					},
+					RulePayload: compv1alpha1.RulePayload{
+						ID:          "cel_rule_1",
+						Title:       "CEL Rule 1",
+						ScannerType: compv1alpha1.ScannerTypeCEL,
+						Expression:  "true",
+						CheckType:   compv1alpha1.CheckTypePlatform,
+					},
+				}
+				crefErr = controllerutil.SetControllerReference(
+					&compv1alpha1.ProfileBundle{ObjectMeta: metav1.ObjectMeta{Name: "pb-1", Namespace: namespace}},
+					celRule, r.Scheme)
+				Expect(crefErr).To(BeNil())
+				createErr = r.Client.Create(ctx, celRule)
+				Expect(createErr).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      tpName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						Extends: "cel-profile",
+						DisableRules: []compv1alpha1.RuleReferenceSpec{
+							{Name: celRuleName},
+						},
+					},
+				}
+				createErr = r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			It("should be accepted without error", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: tpName, Namespace: namespace},
+				}
+
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: tpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).NotTo(Equal(compv1alpha1.TailoredProfileStateError))
+			})
+		})
+
 		Context("CEL Rule extending an OpenSCAP profile (not supported)", func() {
 			BeforeEach(func() {
 				celRule := &compv1alpha1.Rule{

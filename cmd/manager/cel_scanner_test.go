@@ -331,13 +331,116 @@ var _ = Describe("celRuleWrapper", func() {
 			},
 		}
 
-		w := celRuleWrapper{
-			scannerRule: rule,
-			payload:     &rule.RulePayload,
-		}
+	w := celRuleWrapper{
+		scannerRule: rule,
+		payload:     &rule.RulePayload,
+	}
 
-		Expect(w.scannerRule.Identifier()).To(Equal("my-rule"))
-		Expect(w.payload.Expression).To(Equal("pods.items.size() > 0"))
-		Expect(w.payload.FailureReason).To(Equal("no pods"))
+	Expect(w.scannerRule.Identifier()).To(Equal("my-rule"))
+	Expect(w.payload.Expression).To(Equal("pods.items.size() > 0"))
+	Expect(w.payload.FailureReason).To(Equal("no pods"))
+	})
+})
+
+var _ = Describe("getSelectedCELRules with extends", func() {
+	celRule := func(name string) *cmpv1alpha1.Rule {
+		return &cmpv1alpha1.Rule{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			RulePayload: cmpv1alpha1.RulePayload{
+				ID:          name,
+				ScannerType: cmpv1alpha1.ScannerTypeCEL,
+				Expression:  "true",
+				Inputs: []cmpv1alpha1.InputPayload{{
+					Name: "pods",
+					KubernetesInputSpec: cmpv1alpha1.KubernetesInputSpec{
+						APIVersion: "v1",
+						Resource:   "pods",
+					},
+				}},
+				FailureReason: "fail",
+			},
+		}
+	}
+
+	It("loads base profile rules and applies DisableRules", func() {
+		scheme := newTestScheme()
+		profile := &cmpv1alpha1.Profile{
+			ObjectMeta: metav1.ObjectMeta{Name: "cel-prof", Namespace: "ns"},
+			ProfilePayload: cmpv1alpha1.ProfilePayload{
+				Rules: []cmpv1alpha1.ProfileRule{"rule-a", "rule-b", "rule-c"},
+			},
+		}
+		tp := &cmpv1alpha1.TailoredProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "tp-ext", Namespace: "ns"},
+			Spec: cmpv1alpha1.TailoredProfileSpec{
+				Extends: "cel-prof",
+				DisableRules: []cmpv1alpha1.RuleReferenceSpec{
+					{Name: "rule-b"},
+				},
+			},
+		}
+		client := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(profile, celRule("rule-a"), celRule("rule-b"), celRule("rule-c"), tp).Build()
+		cs := &CelScanner{client: client, scheme: scheme}
+
+		rules, err := cs.getSelectedCELRules(tp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rules).To(HaveLen(2))
+		ids := []string{rules[0].scannerRule.Identifier(), rules[1].scannerRule.Identifier()}
+		Expect(ids).To(ConsistOf("rule-a", "rule-c"))
+	})
+
+	It("extends base profile and adds EnableRules", func() {
+		scheme := newTestScheme()
+		profile := &cmpv1alpha1.Profile{
+			ObjectMeta: metav1.ObjectMeta{Name: "cel-prof", Namespace: "ns"},
+			ProfilePayload: cmpv1alpha1.ProfilePayload{
+				Rules: []cmpv1alpha1.ProfileRule{"rule-a"},
+			},
+		}
+		tp := &cmpv1alpha1.TailoredProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "tp-add", Namespace: "ns"},
+			Spec: cmpv1alpha1.TailoredProfileSpec{
+				Extends: "cel-prof",
+				EnableRules: []cmpv1alpha1.RuleReferenceSpec{
+					{Name: "rule-extra"},
+				},
+			},
+		}
+		client := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(profile, celRule("rule-a"), celRule("rule-extra"), tp).Build()
+		cs := &CelScanner{client: client, scheme: scheme}
+
+		rules, err := cs.getSelectedCELRules(tp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rules).To(HaveLen(2))
+		ids := []string{rules[0].scannerRule.Identifier(), rules[1].scannerRule.Identifier()}
+		Expect(ids).To(ConsistOf("rule-a", "rule-extra"))
+	})
+
+	It("does not duplicate rules already in base profile", func() {
+		scheme := newTestScheme()
+		profile := &cmpv1alpha1.Profile{
+			ObjectMeta: metav1.ObjectMeta{Name: "cel-prof", Namespace: "ns"},
+			ProfilePayload: cmpv1alpha1.ProfilePayload{
+				Rules: []cmpv1alpha1.ProfileRule{"rule-a"},
+			},
+		}
+		tp := &cmpv1alpha1.TailoredProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "tp-dup", Namespace: "ns"},
+			Spec: cmpv1alpha1.TailoredProfileSpec{
+				Extends: "cel-prof",
+				EnableRules: []cmpv1alpha1.RuleReferenceSpec{
+					{Name: "rule-a"},
+				},
+			},
+		}
+		client := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(profile, celRule("rule-a"), tp).Build()
+		cs := &CelScanner{client: client, scheme: scheme}
+
+		rules, err := cs.getSelectedCELRules(tp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(rules).To(HaveLen(1))
 	})
 })

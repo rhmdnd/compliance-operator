@@ -608,15 +608,37 @@ func (c *CelScanner) getTailoredProfile(namespace string) (*cmpv1alpha1.Tailored
 
 // getSelectedCELRules fetches CEL rules referenced in the tailored profile.
 // It handles both CustomRule (kind:CustomRule) and Rule CRs (kind:Rule with scannerType=CEL).
+// When the TP extends a CEL profile, the base profile rules are loaded and
+// DisableRules are applied to filter them out before adding EnableRules.
 func (c *CelScanner) getSelectedCELRules(tp *cmpv1alpha1.TailoredProfile) ([]celRuleWrapper, error) {
 	var selectedRules []celRuleWrapper
-	ruleMap := make(map[string]bool) // Track rules to detect duplicates
+	ruleMap := make(map[string]bool)
 
-	// Only process EnableRules for now - DisableRules and ManualRules will be supported
-	// when we implement CEL scanning with default rules
+	if tp.Spec.Extends != "" {
+		baseRules, err := c.getCELRulesFromProfile(tp.Spec.Extends, tp.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("loading base profile '%s': %w", tp.Spec.Extends, err)
+		}
+
+		disabledSet := make(map[string]bool, len(tp.Spec.DisableRules))
+		for _, dr := range tp.Spec.DisableRules {
+			disabledSet[dr.Name] = true
+		}
+
+		for _, rw := range baseRules {
+			name := rw.scannerRule.Identifier()
+			if disabledSet[name] {
+				cmdLog.Info("Disabling rule from base profile", "rule", name)
+				continue
+			}
+			ruleMap[name] = true
+			selectedRules = append(selectedRules, rw)
+		}
+	}
+
 	for _, selection := range tp.Spec.EnableRules {
 		if ruleMap[selection.Name] {
-			return nil, fmt.Errorf("rule '%s' appears twice in EnableRules", selection.Name)
+			continue
 		}
 		ruleMap[selection.Name] = true
 
@@ -640,7 +662,6 @@ func (c *CelScanner) getSelectedCELRules(tp *cmpv1alpha1.TailoredProfile) ([]cel
 				annotations: rule.GetAnnotations(),
 			})
 		} else {
-			// Default or explicit kind:Rule
 			rule := &cmpv1alpha1.Rule{}
 			ruleKey := v1api.NamespacedName{Name: selection.Name, Namespace: tp.Namespace}
 			err := c.client.Get(context.TODO(), ruleKey, rule)
