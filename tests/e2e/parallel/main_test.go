@@ -2951,7 +2951,6 @@ func TestCustomRuleMetadataPropagation(t *testing.T) {
 	}
 }
 
-
 func TestCustomRuleWithMultipleInputs(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
