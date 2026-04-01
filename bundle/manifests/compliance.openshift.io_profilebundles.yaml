@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.contentFile
       name: ContentFile
       type: string
+    - jsonPath: .spec.celContentFile
+      name: CELContentFile
+      type: string
     - jsonPath: .status.dataStreamStatus
       name: Status
       type: string
@@ -51,6 +54,13 @@ spec:
           spec:
             description: Defines the desired state of ProfileBundle
             properties:
+              celContentFile:
+                description: |-
+                  Is the path for the file in the image that contains the CEL-based
+                  compliance content (rules and profiles) for this bundle. This is
+                  optional and when set, the parser will create CEL Rule and Profile CRs
+                  alongside any XCCDF content from ContentFile.
+                type: string
               contentFile:
                 description: Is the path for the file in the image that contains the
                   content for this bundle.
