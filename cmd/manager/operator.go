@@ -687,16 +687,18 @@ func getDefaultRoles(platform PlatformType) []string {
 func generateOperatorServiceMonitor(service *v1.Service, namespace string) *monitoring.ServiceMonitor {
 	serviceMonitor := GenerateServiceMonitor(service)
 	m := "metrics." + namespace + ".svc"
+	scheme := monitoring.Scheme("https")
 	for i := range serviceMonitor.Spec.Endpoints {
 		if serviceMonitor.Spec.Endpoints[i].Port == ctrlMetrics.ControllerMetricsServiceName {
 			serviceMonitor.Spec.Endpoints[i].Path = ctrlMetrics.HandlerPath
-			serviceMonitor.Spec.Endpoints[i].Scheme = "https"
-			serviceMonitor.Spec.Endpoints[i].TLSConfig = &monitoring.TLSConfig{
+			serviceMonitor.Spec.Endpoints[i].Scheme = &scheme
+			tlsConfig := &monitoring.TLSConfig{
 				SafeTLSConfig: monitoring.SafeTLSConfig{
 					ServerName: &m,
 				},
-				CAFile: serviceMonitorTLSCAFile,
 			}
+			tlsConfig.CAFile = serviceMonitorTLSCAFile
+			serviceMonitor.Spec.Endpoints[i].TLSConfig = tlsConfig
 		}
 	}
 	return serviceMonitor

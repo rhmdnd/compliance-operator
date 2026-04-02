@@ -812,19 +812,48 @@ func ownerReferenceWithKind(object metav1.Object, kind string) *metav1.OwnerRefe
 func getUnstructured(r *ReconcileScanSettingBinding, instance *compliancev1alpha1.ScanSettingBinding, key types.NamespacedName, kind, apiGroup string, logger logr.Logger) (*unstructured.Unstructured, error) {
 	logger.Info("Resolving object", "kind", kind, "api", apiGroup)
 
-	o := unstructured.Unstructured{}
-	o.SetAPIVersion(apiGroup)
-	o.SetKind(kind)
+	// Use typed Gets and convert to Unstructured to avoid fake client issues
+	var obj runtime.Object
+	var err error
 
-	err := r.Client.Get(context.TODO(), key, &o)
+	switch kind {
+	case "Profile":
+		profile := &compliancev1alpha1.Profile{}
+		err = r.Client.Get(context.TODO(), key, profile)
+		obj = profile
+	case "TailoredProfile":
+		tp := &compliancev1alpha1.TailoredProfile{}
+		err = r.Client.Get(context.TODO(), key, tp)
+		obj = tp
+	case "ScanSetting":
+		setting := &compliancev1alpha1.ScanSetting{}
+		err = r.Client.Get(context.TODO(), key, setting)
+		obj = setting
+	default:
+		// Fallback to generic unstructured for unknown types
+		gv, parseErr := schema.ParseGroupVersion(apiGroup)
+		if parseErr != nil {
+			logger.Error(parseErr, "error parsing API group/version", "apiGroup", apiGroup)
+			return nil, parseErr
+		}
+		o := &unstructured.Unstructured{}
+		o.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   gv.Group,
+			Version: gv.Version,
+			Kind:    kind,
+		})
+		err = r.Client.Get(context.TODO(), key, o)
+		if err == nil {
+			return o, nil
+		}
+	}
+
 	if errors.IsNotFound(err) {
 		return nil, common.NewRetriableCtrlErrorWithCustomHandler(func() (reconcile.Result, error) {
-			// This might be a temporary issue in the order the objects are being created
 			r.Eventf(
 				instance, corev1.EventTypeWarning, "NamedReferenceLookupError",
 				"NamedObjectReference %s %s not found", kind, key,
 			)
-
 			return reconcile.Result{RequeueAfter: requeueAfterDefault, Requeue: true}, nil
 		}, "NamedObjectReference %s not found", key)
 	} else if err != nil {
@@ -832,7 +861,22 @@ func getUnstructured(r *ReconcileScanSettingBinding, instance *compliancev1alpha
 		return nil, err
 	}
 
-	return &o, nil
+	// Convert typed object to Unstructured
+	unstrObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		logger.Error(err, "error converting to unstructured", "kind", kind)
+		return nil, err
+	}
+
+	result := &unstructured.Unstructured{Object: unstrObj}
+	// Explicitly set GVK on the Unstructured object
+	gv, _ := schema.ParseGroupVersion(apiGroup)
+	result.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   gv.Group,
+		Version: gv.Version,
+		Kind:    kind,
+	})
+	return result, nil
 }
 
 func newCmpv1Alpha1Gvk(kind string) schema.GroupVersionKind {
