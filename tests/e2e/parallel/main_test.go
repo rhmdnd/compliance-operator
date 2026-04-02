@@ -2409,6 +2409,67 @@ func TestScheduledSuiteNoStorage(t *testing.T) {
 	}
 }
 
+func TestScheduledSuitePlatformNoStorage(t *testing.T) {
+	t.Parallel()
+	f := framework.Global
+	suiteName := "test-scheduled-suite-platform-no-storage"
+	platformScanName := fmt.Sprintf("%s-platform-scan", suiteName)
+
+	falseValue := false
+	testSuite := &compv1alpha1.ComplianceSuite{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteName,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceSuiteSpec{
+			ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+				AutoApplyRemediations: false,
+			},
+			Scans: []compv1alpha1.ComplianceScanSpecWrapper{
+				{
+					Name: platformScanName,
+					ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
+						ContentImage: contentImagePath,
+						Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+						Content:      framework.OcpContentFile,
+						Rule:         "xccdf_org.ssgproject.content_rule_ocp_idp_no_htpasswd",
+						ScanType:     compv1alpha1.ScanTypePlatform,
+						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+							RawResultStorage: compv1alpha1.RawResultStorageSettings{
+								Enabled: &falseValue,
+							},
+							Debug: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := f.Client.Create(context.TODO(), testSuite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Client.Delete(context.TODO(), testSuite)
+
+	// Ensure that all the scans in the suite have finished and are marked as Done
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultCompliant)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = f.Client.List(context.TODO(), pvcList, client.InNamespace(f.OperatorNamespace), client.MatchingLabels(map[string]string{
+		compv1alpha1.ComplianceScanLabel: platformScanName,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pvc := range pvcList.Items {
+		t.Fatalf("Found unexpected PVC %s", pvc.Name)
+	}
+}
+
 func TestScheduledSuiteInvalidPriorityClass(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
