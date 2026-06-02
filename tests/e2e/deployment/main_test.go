@@ -142,7 +142,7 @@ func TestProfileBundleDefaultIsKept(t *testing.T) {
 	timeouterr := wait.Poll(framework.RetryInterval, framework.Timeout, func() (bool, error) {
 		pb := &compv1alpha1.ProfileBundle{}
 		if lastErr := f.Client.Get(bctx, pbkey, pb); lastErr != nil {
-			log.Printf("error getting ocp4 PB. Retrying: %s\n", err)
+			log.Printf("error getting ocp4 PB. Retrying: %s\n", lastErr)
 			return false, nil
 		}
 		if pb.Spec.ContentImage != origImage {
