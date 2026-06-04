@@ -114,7 +114,7 @@ func TestProfileBundleDefaultIsKept(t *testing.T) {
 
 	// Now wait for the processing to finish
 	if err := f.WaitForProfileBundleStatus("ocp4", compv1alpha1.DataStreamValid); err != nil {
-		t.Fatalf("ocp4 update didn't trigger a PENDING state: %s", err)
+		t.Fatalf("ocp4 update didn't trigger a VALID state: %s", err)
 	}
 
 	// Delete compliance operator pods
