@@ -406,6 +406,30 @@ func getISTagNamespace(ref reference.DockerImageReference) string {
 	return common.GetComplianceOperatorNamespace()
 }
 
+// contentCopyCommand builds the shell command for the content-container init container.
+// It copies the XCCDF content file and optionally the CEL content file.
+func contentCopyCommand(pb *compliancev1alpha1.ProfileBundle) string {
+	cmd := fmt.Sprintf("cp %s /content | /bin/true", path.Join("/", pb.Spec.ContentFile))
+	if pb.Spec.CELContentFile != "" {
+		cmd += fmt.Sprintf(" && cp %s /content | /bin/true", path.Join("/", pb.Spec.CELContentFile))
+	}
+	return cmd
+}
+
+// profileparserCommand builds the command arguments for the profileparser init container.
+func profileparserCommand(pb *compliancev1alpha1.ProfileBundle) []string {
+	cmd := []string{
+		"compliance-operator", "profileparser",
+		"--name", pb.Name,
+		"--namespace", pb.Namespace,
+		"--ds-path", path.Join("/content", pb.Spec.ContentFile),
+	}
+	if pb.Spec.CELContentFile != "" {
+		cmd = append(cmd, "--cel-path", path.Join("/content", pb.Spec.CELContentFile))
+	}
+	return cmd
+}
+
 func getWorkloadLabels(pb *compliancev1alpha1.ProfileBundle) map[string]string {
 	return map[string]string{
 		"profile-bundle": pb.Name,
@@ -450,6 +474,16 @@ func (r *ReconcileProfileBundle) newWorkloadForBundle(pb *compliancev1alpha1.Pro
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
+			// Use Recreate so the previous parser pod is fully torn down
+			// before the new one starts. The profileparser writes the
+			// ProfileBundle status, so two pods running at once (e.g. the old
+			// pod still crash-looping on a bad content image while the new pod
+			// parses the fixed image during a RollingUpdate) would race to set
+			// the status and clobber each other, leaving the ProfileBundle
+			// stuck non-VALID.
+			Strategy: appsv1.DeploymentStrategy{
+				Type: appsv1.RecreateDeploymentStrategyType,
+			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
@@ -470,7 +504,7 @@ func (r *ReconcileProfileBundle) newWorkloadForBundle(pb *compliancev1alpha1.Pro
 							Command: []string{
 								"sh",
 								"-c",
-								fmt.Sprintf("cp %s /content | /bin/true", path.Join("/", pb.Spec.ContentFile)),
+								contentCopyCommand(pb),
 							},
 							ImagePullPolicy: corev1.PullAlways,
 							SecurityContext: &corev1.SecurityContext{
@@ -519,12 +553,7 @@ func (r *ReconcileProfileBundle) newWorkloadForBundle(pb *compliancev1alpha1.Pro
 									corev1.ResourceCPU:    resource.MustParse("100m"),
 								},
 							},
-							Command: []string{
-								"compliance-operator", "profileparser",
-								"--name", pb.Name,
-								"--namespace", pb.Namespace,
-								"--ds-path", path.Join("/content", pb.Spec.ContentFile),
-							},
+							Command: profileparserCommand(pb),
 							Env: []corev1.EnvVar{
 								corev1.EnvVar{Name: "PLATFORM", Value: utils.GetPlatform()},
 								corev1.EnvVar{Name: "CONTROL_PLANE_TOPOLOGY", Value: utils.GetControlPlaneTopology()},
