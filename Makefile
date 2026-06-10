@@ -602,7 +602,7 @@ endif
 	@$(GO) test -v ./pkg/utils/ -ginkgo.v
 
 .PHONY: e2e
-e2e: e2e-set-image prep-e2e e2e-parallel e2e-config e2e-test-wait e2e-serial ## Run full end-to-end tests that exercise content on an operational cluster.
+e2e: e2e-set-image prep-e2e e2e-parallel e2e-scan-config e2e-test-wait e2e-serial ## Run full end-to-end tests that exercise content on an operational cluster.
 
 .PHONY: e2e
 e2e-test-wait:
@@ -610,21 +610,21 @@ e2e-test-wait:
 
 .PHONY: e2e-parallel
 e2e-parallel: e2e-set-image prep-e2e ## Run non-destructive end-to-end tests concurrently.
-	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/parallel $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-test.log
+	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/parallel $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-parallel.log
 
-.PHONY: e2e-config
-e2e-config: e2e-set-image prep-e2e ## Run scan and suite configuration end-to-end tests concurrently.
-	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/config $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-test.log
+.PHONY: e2e-scan-config
+e2e-scan-config: e2e-set-image prep-e2e ## Run scan and suite configuration end-to-end tests concurrently.
+	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/scan-config $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-scan-config.log
 
 .PHONY: e2e-serial
 e2e-serial: e2e-set-image prep-e2e ## Run destructive end-to-end tests serially.
-	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/serial $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-test.log
+	@CONTENT_IMAGE=$(E2E_CONTENT_IMAGE_PATH) BROKEN_CONTENT_IMAGE=$(E2E_BROKEN_CONTENT_IMAGE_PATH) $(GO) test ./tests/e2e/serial $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) | tee tests/e2e-serial.log
 
 ## Convert --platform to using $PLATFORM if we make this target more generic
 ## for other offerings.
 .PHONY: e2e-rosa
 e2e-rosa: e2e-set-image prep-e2e ## Run tests against managed ROSA environment concurrently
-	@$(GO) test ./tests/e2e/rosa $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) --platform rosa | tee tests/e2e-test.log
+	@$(GO) test ./tests/e2e/rosa $(E2E_GO_TEST_FLAGS) -args $(E2E_ARGS) --platform rosa | tee tests/e2e-rosa.log
 
 .PHONY: prep-e2e
 prep-e2e: kustomize

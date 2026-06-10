@@ -1,4 +1,4 @@
-package config_e2e
+package scan_config_e2e
 
 import (
 	"context"
