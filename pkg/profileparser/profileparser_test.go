@@ -694,6 +694,51 @@ var _ = Describe("Testing parse rules", func() {
 	})
 })
 
+var _ = Describe("Testing reference parser standard matching", func() {
+	var stdParser *referenceParser
+
+	BeforeEach(func() {
+		stdParser = newStandardParser()
+	})
+
+	Context("NERC-CIP URL matching", func() {
+		It("Matches the legacy NERC-CIP URL", func() {
+			href := "https://www.nerc.com/pa/Stand/AlignRep/One%20Stop%20Shop.xlsx"
+			matched := false
+			for _, std := range stdParser.registeredStds {
+				if std.hrefMatcher.MatchString(href) {
+					Expect(std.Name).To(Equal("NERC-CIP"))
+					matched = true
+					break
+				}
+			}
+			Expect(matched).To(BeTrue())
+		})
+
+		It("Matches the new NERC-CIP URL", func() {
+			href := "https://www.nerc.com/standards/reliability-standards/cip"
+			matched := false
+			for _, std := range stdParser.registeredStds {
+				if std.hrefMatcher.MatchString(href) {
+					Expect(std.Name).To(Equal("NERC-CIP"))
+					matched = true
+					break
+				}
+			}
+			Expect(matched).To(BeTrue())
+		})
+
+		It("Does not match an unrelated NERC URL", func() {
+			href := "https://www.nerc.com/something-else"
+			for _, std := range stdParser.registeredStds {
+				if std.Name == "NERC-CIP" {
+					Expect(std.hrefMatcher.MatchString(href)).To(BeFalse())
+				}
+			}
+		})
+	})
+})
+
 var _ = Describe("Testing CPE string parsing in isolation", func() {
 	Context("Malformed CPE string", func() {
 		It("Returns the defaults if the CPE uri does not start with cpe://", func() {
