@@ -2624,13 +2624,13 @@ func TestMustGatherImageWorksAsExpected(t *testing.T) {
 
 	// Execute must-gather
 	log.Printf("Executing must-gather with image %s to directory %s...", mustGatherImage, mustGatherDir)
-	_, err = runOCandGetOutput([]string{
+	mustGatherOutput, err := runOCandGetOutput([]string{
 		"adm", "must-gather",
 		"--image=" + mustGatherImage,
 		"--dest-dir=" + mustGatherDir,
 	})
 	if err != nil {
-		t.Fatalf("Failed to execute must-gather: %v", err)
+		t.Fatalf("Failed to execute must-gather: %v\nOutput: %s", err, mustGatherOutput)
 	}
 
 	log.Printf("Must-gather completed successfully")
