@@ -2536,7 +2536,7 @@ func TestRuntimeSSHConfigWithRemediation(t *testing.T) {
 	}
 
 	t.Log("Runtime SSH configuration with remediation test completed")
-
+}
 func TestMustGatherImageWorksAsExpected(t *testing.T) {
 	f := framework.Global
 
