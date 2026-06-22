@@ -1,4 +1,19 @@
-FROM quay.io/openshift/origin-cli:latest
+# The downstream Konflux build (Containerfile) uses registry.redhat.io and
+# installs oc via the openshift-clients RPM, but both require Red Hat
+# subscription credentials that are unavailable in GitHub Actions. Use the
+# public ubi-minimal base image and download oc from the OpenShift mirror
+# instead so the upstream CI image can build.
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+ARG TARGETARCH
+
+RUN microdnf install -y tar gzip && \
+    OC_ARCH="${TARGETARCH}" && \
+    if [ "${OC_ARCH}" = "amd64" ]; then OC_ARCH="x86_64"; fi && \
+    if [ "${OC_ARCH}" = "arm64" ]; then OC_ARCH="aarch64"; fi && \
+    curl -sL "https://mirror.openshift.com/pub/openshift-v4/${OC_ARCH}/clients/ocp/stable/openshift-client-linux.tar.gz" | \
+    tar -xz -C /usr/local/bin oc kubectl && \
+    microdnf clean all && rm -rf /var/cache/yum
 
 COPY utils/must-gather/gather* /usr/bin/
 COPY utils/must-gather/fetch-raw-results-pod-template.yaml /usr/share/
