@@ -2776,7 +2776,7 @@ func runOCandGetOutput(args []string) (string, error) {
 	cmd := exec.Command(ocPath, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to run oc command: %v", err)
+		return string(out), fmt.Errorf("failed to run oc command: %v", err)
 	}
 	return string(out), nil
 }
