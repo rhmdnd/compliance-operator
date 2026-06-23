@@ -388,7 +388,7 @@ func (f *Framework) AssertMetricsEndpointUsesHTTPVersion(endpoint, version strin
 	// #nosec
 	cmd := exec.Command(ocPath,
 		"run", "--rm", "-i", "--restart=Never", "--image=registry.fedoraproject.org/fedora-minimal:latest",
-		"-n", f.OperatorNamespace, "metrics-test", "--", "bash", "-c", curlCMD,
+		"-n", f.OperatorNamespace, fmt.Sprintf("metrics-test-%d", time.Now().UnixNano()), "--", "bash", "-c", curlCMD,
 	)
 
 	out, err := cmd.CombinedOutput()
@@ -605,7 +605,7 @@ func getMetricResults(namespace string) (string, error) {
 	// #nosec
 	cmd := exec.Command(ocPath,
 		"run", "--rm", "-i", "--restart=Never", "--image=registry.fedoraproject.org/fedora-minimal:latest",
-		"-n", namespace, "metrics-test", "--", "bash", "-c",
+		"-n", namespace, fmt.Sprintf("metrics-test-%d", time.Now().UnixNano()), "--", "bash", "-c",
 		getTestMetricsCMD(namespace),
 	)
 	out, err := cmd.CombinedOutput()
