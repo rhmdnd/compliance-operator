@@ -7,6 +7,8 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.39.1
+	github.com/openshift/api v0.0.1
+	github.com/openshift/client-go v0.0.1
 	k8s.io/apimachinery v0.35.5
 	k8s.io/client-go v1.5.2
 	open-cluster-management.io/api v0.15.0
@@ -173,7 +175,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/olekukonko/tablewriter v1.1.4 // indirect
-	github.com/openshift/client-go v0.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
