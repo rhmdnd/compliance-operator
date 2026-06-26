@@ -29,6 +29,7 @@ import (
 	kube "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest/fake"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -880,3 +881,385 @@ fi`, runtimeDir, configPath, sshdBin, terminationLog)
 	})
 })
 
+var _ = Describe("ComplianceScan validation for invalid scan types and tailoring", func() {
+
+	var (
+		reconciler ReconcileComplianceScan
+		logger     logr.Logger
+	)
+
+	BeforeEach(func() {
+		logger = zapr.NewLogger(zap.NewNop())
+
+		trueValue := true
+		objs := []runtime.Object{}
+
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: common.GetComplianceOperatorNamespace(),
+			},
+		}
+		objs = append(objs, ns)
+
+		results := &compv1alpha1.ComplianceCheckResultList{}
+		profileList := &compv1alpha1.ProfileList{}
+		profileBundleList := &compv1alpha1.ProfileBundleList{}
+
+		cscheme := scheme.Scheme
+		cscheme.AddKnownTypes(compv1alpha1.SchemeGroupVersion,
+			&compv1alpha1.ComplianceScan{},
+			results,
+			&compv1alpha1.Profile{}, profileList,
+			&compv1alpha1.ProfileBundle{}, profileBundleList,
+		)
+
+		_ = trueValue
+
+		mockMetrics := metrics.NewMetrics(&metricsfakes.FakeImpl{})
+		err := mockMetrics.Register()
+		Expect(err).To(BeNil())
+
+		fclient := fake.NewClientBuilder().
+			WithScheme(cscheme).
+			WithStatusSubresource(&compv1alpha1.ComplianceScan{}).
+			WithRuntimeObjects(objs...).
+			Build()
+
+		reconciler = ReconcileComplianceScan{
+			Client:   fclient,
+			Scheme:   cscheme,
+			Metrics:  mockMetrics,
+			Recorder: record.NewFakeRecorder(100),
+		}
+	})
+
+	Context("With an invalid scan type", func() {
+		It("should set phase DONE and result ERROR when scan type is invalid", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-invalid-scantype",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-ocp4-non-existent.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ScanType:     "BadScanType",
+					ScannerType:  compv1alpha1.ScannerTypeOpenSCAP,
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						RawResultStorage: compv1alpha1.RawResultStorageSettings{
+							Size: compv1alpha1.DefaultRawStorageSize,
+						},
+						Debug: true,
+					},
+				},
+				Status: compv1alpha1.ComplianceScanStatus{
+					Phase: compv1alpha1.PhasePending,
+				},
+			}
+
+			err := reconciler.Client.Create(context.TODO(), scanInstance)
+			Expect(err).To(BeNil())
+
+			cont, err := reconciler.validate(scanInstance, logger)
+			Expect(err).To(BeNil())
+			Expect(cont).To(BeFalse())
+
+			// Fetch the updated scan
+			updated := &compv1alpha1.ComplianceScan{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Name:      scanInstance.Name,
+				Namespace: scanInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Phase).To(Equal(compv1alpha1.PhaseDone))
+			Expect(updated.Status.Result).To(Equal(compv1alpha1.ResultError))
+			Expect(updated.Status.ErrorMessage).To(ContainSubstring("BadScanType"))
+			Expect(updated.Status.ErrorMessage).To(ContainSubstring("not valid"))
+		})
+	})
+
+	Context("With node selector matching no nodes", func() {
+		It("should set result NOT-APPLICABLE when no nodes match the selector", func() {
+			trueValue := true
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-no-matching-nodes",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ScanType:     compv1alpha1.ScanTypeNode,
+					ScannerType:  compv1alpha1.ScannerTypeOpenSCAP,
+					NodeSelector: map[string]string{
+						"node-role.kubernetes.io/no-matches": "",
+					},
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						RawResultStorage: compv1alpha1.RawResultStorageSettings{
+							Enabled:       &trueValue,
+							Size:          compv1alpha1.DefaultRawStorageSize,
+							PVAccessModes: defaultAccessMode,
+						},
+						ShowNotApplicable: true,
+					},
+				},
+			}
+
+			err := reconciler.Client.Create(context.TODO(), scanInstance)
+			Expect(err).To(BeNil())
+
+			handler, err := getScanTypeHandler(&reconciler, scanInstance, logger)
+			Expect(err).To(BeNil())
+
+			cont, err := handler.validate()
+			Expect(err).To(BeNil())
+			Expect(cont).To(BeFalse())
+
+			// Fetch the updated scan status
+			updated := &compv1alpha1.ComplianceScan{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Name:      scanInstance.Name,
+				Namespace: scanInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Result).To(Equal(compv1alpha1.ResultNotApplicable))
+			Expect(updated.Status.Phase).To(Equal(compv1alpha1.PhaseDone))
+		})
+	})
+
+	Context("With node selector matching specific nodes", func() {
+		It("should pass validation when nodes match the selector", func() {
+			trueValue := true
+			// Create a node with matching label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "worker-1",
+					Labels: map[string]string{
+						"node-role.kubernetes.io/worker": "",
+						"kubernetes.io/os":               "linux",
+					},
+				},
+			}
+			err := reconciler.Client.Create(context.TODO(), node)
+			Expect(err).To(BeNil())
+
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-filtered-scan",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ScanType:     compv1alpha1.ScanTypeNode,
+					ScannerType:  compv1alpha1.ScannerTypeOpenSCAP,
+					NodeSelector: map[string]string{
+						"node-role.kubernetes.io/worker": "",
+					},
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						RawResultStorage: compv1alpha1.RawResultStorageSettings{
+							Enabled:       &trueValue,
+							Size:          compv1alpha1.DefaultRawStorageSize,
+							PVAccessModes: defaultAccessMode,
+						},
+						Debug: true,
+					},
+				},
+			}
+
+			err = reconciler.Client.Create(context.TODO(), scanInstance)
+			Expect(err).To(BeNil())
+
+			handler, err := getScanTypeHandler(&reconciler, scanInstance, logger)
+			Expect(err).To(BeNil())
+
+			cont, err := handler.validate()
+			Expect(err).To(BeNil())
+			Expect(cont).To(BeTrue())
+		})
+	})
+
+	Context("With an empty tailoring ConfigMap name", func() {
+		It("should include tailoring dir in env configmap when TailoringConfigMap is set", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-tailoring-cm-env",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					TailoringConfigMap: &compv1alpha1.TailoringConfigMapRef{
+						Name: "my-tailoring-cm",
+					},
+				},
+			}
+
+			cm := commonOpenScapEnvCm("test-env-cm", scanInstance)
+			Expect(cm.Data[OpenScapTailoringDirEnvName]).To(Equal(OpenScapTailoringDir))
+		})
+
+		It("should not include tailoring dir in env configmap when TailoringConfigMap is nil", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-no-tailoring",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+				},
+			}
+
+			cm := commonOpenScapEnvCm("test-env-cm", scanInstance)
+			_, hasTailoringDir := cm.Data[OpenScapTailoringDirEnvName]
+			Expect(hasTailoringDir).To(BeFalse())
+		})
+
+		It("should still set tailoring dir even when ConfigMap name is empty string", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-empty-tailoring-cm",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					TailoringConfigMap: &compv1alpha1.TailoringConfigMapRef{
+						Name: "",
+					},
+				},
+			}
+
+			// When TailoringConfigMap is set (even with empty name),
+			// the env CM still gets the tailoring dir setting
+			cm := commonOpenScapEnvCm("test-env-cm", scanInstance)
+			Expect(cm.Data[OpenScapTailoringDirEnvName]).To(Equal(OpenScapTailoringDir))
+		})
+	})
+
+	Context("With proxy settings", func() {
+		It("should include HTTPS_PROXY in env configmap when HTTPSProxy is set on the scan", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-proxy-scan",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						HTTPSProxy: "http://proxy.example.com:3128",
+					},
+				},
+			}
+
+			cm := commonOpenScapEnvCm("test-proxy-env-cm", scanInstance)
+			Expect(cm.Data[HTTPSProxyEnvName]).To(Equal("http://proxy.example.com:3128"))
+		})
+
+		It("should not include HTTPS_PROXY when no proxy is configured", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-no-proxy-scan",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+				},
+			}
+
+			cm := commonOpenScapEnvCm("test-no-proxy-env-cm", scanInstance)
+			_, hasProxy := cm.Data[HTTPSProxyEnvName]
+			Expect(hasProxy).To(BeFalse())
+		})
+	})
+
+	Context("Scan with missing phase defaults to PENDING", func() {
+		It("should default to PhasePending when phase is empty", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-default-phase",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ScanType:     compv1alpha1.ScanTypeNode,
+					ScannerType:  compv1alpha1.ScannerTypeOpenSCAP,
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						RawResultStorage: compv1alpha1.RawResultStorageSettings{
+							Size: compv1alpha1.DefaultRawStorageSize,
+						},
+					},
+				},
+			}
+
+			err := reconciler.Client.Create(context.TODO(), scanInstance)
+			Expect(err).To(BeNil())
+
+			cont, err := reconciler.validate(scanInstance, logger)
+			Expect(err).To(BeNil())
+			Expect(cont).To(BeFalse())
+
+			updated := &compv1alpha1.ComplianceScan{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Name:      scanInstance.Name,
+				Namespace: scanInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Phase).To(Equal(compv1alpha1.PhasePending))
+		})
+	})
+
+	Context("Scan with missing scan type defaults correctly", func() {
+		It("should default ScanType to Node when empty", func() {
+			scanInstance := &compv1alpha1.ComplianceScan{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-default-scantype",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Spec: compv1alpha1.ComplianceScanSpec{
+					Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+					Content:      "ssg-rhcos4-ds.xml",
+					ContentImage: "quay.io/example/content:latest",
+					ScanType:     "",
+					ScannerType:  compv1alpha1.ScannerTypeOpenSCAP,
+					ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+						RawResultStorage: compv1alpha1.RawResultStorageSettings{
+							Size: compv1alpha1.DefaultRawStorageSize,
+						},
+					},
+				},
+				Status: compv1alpha1.ComplianceScanStatus{
+					Phase: compv1alpha1.PhasePending,
+				},
+			}
+
+			err := reconciler.Client.Create(context.TODO(), scanInstance)
+			Expect(err).To(BeNil())
+
+			cont, err := reconciler.validate(scanInstance, logger)
+			Expect(err).To(BeNil())
+			Expect(cont).To(BeFalse())
+
+			updated := &compv1alpha1.ComplianceScan{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Name:      scanInstance.Name,
+				Namespace: scanInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Spec.ScanType).To(Equal(compv1alpha1.ScanTypeNode))
+		})
+	})
+})
