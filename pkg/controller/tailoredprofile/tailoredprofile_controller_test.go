@@ -1339,6 +1339,282 @@ var _ = Describe("TailoredprofileController", func() {
 		})
 	})
 
+	Describe("TailoredProfile rule pruning with type-changed rules", func() {
+		// Covers TestScanSettingBindingTailoringManyEnablingRulePass e2e:
+		// Tests that when a rule changes check type (e.g., Platform -> Node),
+		// the TailoredProfile with pruneOutdated annotation removes it,
+		// while one without the annotation keeps the rule but adds a warning.
+
+		Context("with prune-outdated-references annotation and migrated rules", func() {
+			var (
+				tpName = "prune-migrated-rules-tp"
+			)
+
+			BeforeEach(func() {
+				// Create rules that have been "migrated" (changed check type)
+				// rule-1 was already created in the global BeforeEach (owned by pb-1)
+				// We need to add the migration annotation to it
+				rule1 := &compv1alpha1.Rule{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: "rule-1", Namespace: namespace}, rule1)
+				Expect(err).To(BeNil())
+
+				rule1Copy := rule1.DeepCopy()
+				if rule1Copy.Annotations == nil {
+					rule1Copy.Annotations = make(map[string]string)
+				}
+				rule1Copy.Annotations[compv1alpha1.RuleLastCheckTypeChangedAnnotationKey] = compv1alpha1.CheckTypePlatform
+				rule1Copy.CheckType = compv1alpha1.CheckTypeNode
+				err = r.Client.Update(ctx, rule1Copy)
+				Expect(err).To(BeNil())
+
+				// Create a TailoredProfile with prune annotation that has the migrated rule
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      tpName,
+						Namespace: namespace,
+						Annotations: map[string]string{
+							compv1alpha1.PruneOutdatedReferencesAnnotationKey: "true",
+							compv1alpha1.ProductTypeAnnotation:                string(compv1alpha1.ScanTypePlatform),
+						},
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name:      "rule-1",
+								Rationale: "this rule changed type and should be pruned",
+							},
+							{
+								Name:      "rule-2",
+								Rationale: "this rule did not change type",
+							},
+						},
+					},
+				}
+				createErr := r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			It("should remove the migrated rule and keep the non-migrated one", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      tpName,
+						Namespace: namespace,
+					},
+				}
+
+				By("Reconciling the first time (setting ownership)")
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Reconciling the second time (should trigger pruning)")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Fetching the TP to check what happened")
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: tpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+
+				By("Verifying rule-1 (migrated) was removed from EnableRules")
+				found := false
+				for _, rule := range tp.Spec.EnableRules {
+					if rule.Name == "rule-1" {
+						found = true
+					}
+				}
+				Expect(found).To(BeFalse(), "Expected migrated rule-1 to be pruned from EnableRules")
+
+				By("Verifying rule-2 (non-migrated) is still in EnableRules")
+				found = false
+				for _, rule := range tp.Spec.EnableRules {
+					if rule.Name == "rule-2" {
+						found = true
+					}
+				}
+				Expect(found).To(BeTrue(), "Expected non-migrated rule-2 to remain in EnableRules")
+			})
+		})
+
+		Context("without prune annotation and migrated rules", func() {
+			var (
+				tpName = "no-prune-migrated-rules-tp"
+			)
+
+			BeforeEach(func() {
+				// Ensure rule-1 has migration annotation
+				rule1 := &compv1alpha1.Rule{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: "rule-1", Namespace: namespace}, rule1)
+				Expect(err).To(BeNil())
+
+				rule1Copy := rule1.DeepCopy()
+				if rule1Copy.Annotations == nil {
+					rule1Copy.Annotations = make(map[string]string)
+				}
+				rule1Copy.Annotations[compv1alpha1.RuleLastCheckTypeChangedAnnotationKey] = compv1alpha1.CheckTypePlatform
+				rule1Copy.CheckType = compv1alpha1.CheckTypeNode
+				err = r.Client.Update(ctx, rule1Copy)
+				Expect(err).To(BeNil())
+
+				// Create a TP without prune annotation
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      tpName,
+						Namespace: namespace,
+						Annotations: map[string]string{
+							compv1alpha1.ProductTypeAnnotation: string(compv1alpha1.ScanTypePlatform),
+						},
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name:      "rule-1",
+								Rationale: "this rule changed type but should NOT be pruned",
+							},
+							{
+								Name:      "rule-2",
+								Rationale: "this rule did not change type",
+							},
+						},
+					},
+				}
+				createErr := r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			It("should keep the migrated rule and generate a warning", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      tpName,
+						Namespace: namespace,
+					},
+				}
+
+				By("Reconciling the first time (setting ownership)")
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Reconciling the second time (may encounter conflict, retry)")
+				// The first reconcile updates the TP (ownership+annotations), the second
+				// may encounter a conflict because the status was also updated. The
+				// third reconcile should succeed.
+				r.Reconcile(context.TODO(), tpReq)
+
+				By("Reconciling the third time (should generate warning)")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Fetching the TP to check what happened")
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: tpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+
+				By("Verifying rule-1 (migrated) is still in EnableRules since prune is not set")
+				found := false
+				for _, rule := range tp.Spec.EnableRules {
+					if rule.Name == "rule-1" {
+						found = true
+					}
+				}
+				Expect(found).To(BeTrue(), "Expected migrated rule-1 to remain when prune is not set")
+
+				By("Verifying a warning was generated about the migrated rule")
+				Expect(tp.Status.Warnings).To(ContainSubstring("rule-1"))
+			})
+		})
+
+		Context("generateWarningMessage", func() {
+			It("should generate warning for migrated rules", func() {
+				ruleList := []string{"rule-a", "rule-b"}
+				msg := generateWarningMessage(ruleList)
+				Expect(msg).To(ContainSubstring("rule-a"))
+				Expect(msg).To(ContainSubstring("rule-b"))
+				Expect(msg).To(ContainSubstring("changed check type"))
+			})
+
+			It("should return empty string when no rules need migration", func() {
+				msg := generateWarningMessage([]string{})
+				Expect(msg).To(BeEmpty())
+			})
+
+			It("should return empty string for nil list", func() {
+				msg := generateWarningMessage(nil)
+				Expect(msg).To(BeEmpty())
+			})
+		})
+
+		Context("with prune annotation and all rules migrated in a standalone TP", func() {
+			var (
+				tpName = "all-migrated-rules-tp"
+			)
+
+			BeforeEach(func() {
+				// Mark rule-3 as migrated too
+				rule3 := &compv1alpha1.Rule{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: "rule-3", Namespace: namespace}, rule3)
+				Expect(err).To(BeNil())
+
+				rule3Copy := rule3.DeepCopy()
+				if rule3Copy.Annotations == nil {
+					rule3Copy.Annotations = make(map[string]string)
+				}
+				rule3Copy.Annotations[compv1alpha1.RuleLastCheckTypeChangedAnnotationKey] = compv1alpha1.CheckTypePlatform
+				rule3Copy.CheckType = compv1alpha1.CheckTypeNode
+				err = r.Client.Update(ctx, rule3Copy)
+				Expect(err).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      tpName,
+						Namespace: namespace,
+						Annotations: map[string]string{
+							compv1alpha1.PruneOutdatedReferencesAnnotationKey: "true",
+							compv1alpha1.ProductTypeAnnotation:                string(compv1alpha1.ScanTypePlatform),
+						},
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name:      "rule-3",
+								Rationale: "this rule changed type and should be pruned",
+							},
+						},
+					},
+				}
+				createErr := r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			It("should enter error state when all rules are pruned and TP has no extends", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      tpName,
+						Namespace: namespace,
+					},
+				}
+
+				By("Reconciling the first time (setting ownership)")
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Reconciling the second time (may encounter conflict, retry)")
+				r.Reconcile(context.TODO(), tpReq)
+
+				By("Reconciling the third time (should trigger pruning)")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Fetching the TP to check the state")
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: tpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+
+				By("Verifying the TP is in error state since all rules were pruned")
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
+				Expect(tp.Status.ErrorMessage).To(ContainSubstring("does not have any rules"))
+			})
+		})
+	})
+
 	Describe("TailoredProfile with CustomRules", func() {
 		var (
 			tpName         = "test-tp-customrule"
@@ -1355,12 +1631,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_1",
-							Title:        "Test Custom Rule",
-							Description:  "A test custom rule",
-							Severity:     "medium",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "true",
+							ID:          "custom_rule_1",
+							Title:       "Test Custom Rule",
+							Description: "A test custom rule",
+							Severity:    "medium",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",
@@ -1446,12 +1722,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_2",
-							Title:        "Test Custom Rule with Error",
-							Description:  "A test custom rule with validation error",
-							Severity:     "high",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "invalid expression",
+							ID:          "custom_rule_2",
+							Title:       "Test Custom Rule with Error",
+							Description: "A test custom rule with validation error",
+							Severity:    "high",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "invalid expression",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",
@@ -1535,12 +1811,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_3",
-							Title:        "Test Custom Rule Pending",
-							Description:  "A test custom rule pending validation",
-							Severity:     "low",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "true",
+							ID:          "custom_rule_3",
+							Title:       "Test Custom Rule Pending",
+							Description: "A test custom rule pending validation",
+							Severity:    "low",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",

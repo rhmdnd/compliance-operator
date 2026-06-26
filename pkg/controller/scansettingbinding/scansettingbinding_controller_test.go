@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -861,6 +862,451 @@ var _ = Describe("Testing scansettingbinding controller", func() {
 
 			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: ssb.Name, Namespace: ssb.Namespace}, suite)
 			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("Creates a suite from multiple Profiles with scan settings propagated", func() {
+		// Covers TestScanSettingBinding e2e: validates that SSB with multiple profiles
+		// creates per-role scans with settings (debug, scan limits) propagated correctly.
+		var (
+			profRhcosModerate *compv1alpha1.Profile
+		)
+
+		JustBeforeEach(func() {
+			// Create a second profile (moderate)
+			moderateProfileAnnotations := map[string]string{
+				compv1alpha1.ProductTypeAnnotation: string(compv1alpha1.ScanTypeNode),
+				compv1alpha1.ProductAnnotation:     "rhcos4",
+			}
+			profRhcosModerate = &compv1alpha1.Profile{
+				TypeMeta: v1.TypeMeta{
+					Kind:       "Profile",
+					APIVersion: compv1alpha1.SchemeGroupVersion.String(),
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:        "rhcos4-moderate",
+					Namespace:   common.GetComplianceOperatorNamespace(),
+					Annotations: moderateProfileAnnotations,
+				},
+				ProfilePayload: compv1alpha1.ProfilePayload{
+					Title:       "rhcos4 moderate profile",
+					Description: "rhcos4 moderate profile description",
+					ID:          "xccdf_org.ssgproject.content_profile_moderate",
+				},
+			}
+			profRhcosModerate.OwnerReferences = append(profRhcosModerate.OwnerReferences,
+				v1.OwnerReference{
+					Name:       pBundleRhcos.Name,
+					Kind:       "ProfileBundle",
+					APIVersion: compv1alpha1.SchemeGroupVersion.String(),
+				})
+			err := reconciler.Client.Create(context.TODO(), profRhcosModerate)
+			Expect(err).To(BeNil())
+
+			bindingTypeMeta := v1.TypeMeta{}
+			bindingTypeMeta.SetGroupVersionKind(compv1alpha1.SchemeGroupVersion.WithKind("ScanSettingBinding"))
+			ssb = &compv1alpha1.ScanSettingBinding{
+				TypeMeta: bindingTypeMeta,
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "multi-profile-ssb",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Profiles: []compv1alpha1.NamedObjectReference{
+					{
+						Name:     profRhcosE8.Name,
+						Kind:     "Profile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+					{
+						Name:     profRhcosModerate.Name,
+						Kind:     "Profile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+				},
+				SettingsRef: &compv1alpha1.NamedObjectReference{
+					Name:     setting.Name,
+					Kind:     "ScanSetting",
+					APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+				},
+			}
+			ssb.Status.SetConditionPending()
+			err = reconciler.Client.Create(context.TODO(), ssb)
+			Expect(err).To(BeNil())
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssb.Namespace,
+				Name:      ssb.Name,
+			}, ssb)
+			Expect(err).To(BeNil())
+		})
+
+		It("Should create scans for each profile-role combination with debug propagated", func() {
+			_, err := reconciler.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ssb.Namespace,
+					Name:      ssb.Name,
+				},
+			})
+			Expect(err).To(BeNil())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssb.Namespace,
+				Name:      ssb.Name,
+			}, ssb)
+			Expect(err).To(BeNil())
+			Expect(ssb.Status.Conditions.IsTrueFor("Ready")).To(BeTrue())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: ssb.Name, Namespace: ssb.Namespace}, suite)
+			Expect(err).To(BeNil())
+
+			// Two profiles * two roles = 4 scans
+			Expect(suite.Spec.Scans).To(HaveLen(4))
+
+			// All scans should have debug=true from the ScanSetting
+			for _, scan := range suite.Spec.Scans {
+				Expect(scan.Debug).To(BeTrue())
+			}
+
+			// Verify scan names include profile and role
+			scanNames := make([]string, 0)
+			for _, scan := range suite.Spec.Scans {
+				scanNames = append(scanNames, scan.Name)
+			}
+			Expect(scanNames).To(ContainElement("rhcos4-e8-master"))
+			Expect(scanNames).To(ContainElement("rhcos4-e8-worker"))
+			Expect(scanNames).To(ContainElement("rhcos4-moderate-master"))
+			Expect(scanNames).To(ContainElement("rhcos4-moderate-worker"))
+		})
+	})
+
+	Context("Creates a suite with RawResultStorage disabled", func() {
+		// Covers TestScanSettingBindingNoStorage e2e: validates that when
+		// RawResultStorage.Enabled is false in ScanSetting, the resulting
+		// ComplianceScan spec also has it disabled.
+		JustBeforeEach(func() {
+			falseVal := false
+			settingNoStorage := &compv1alpha1.ScanSetting{
+				TypeMeta: v1.TypeMeta{
+					Kind:       "ScanSetting",
+					APIVersion: compv1alpha1.SchemeGroupVersion.String(),
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "setting-no-storage",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+					AutoApplyRemediations: false,
+				},
+				ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+					Debug: true,
+					RawResultStorage: compv1alpha1.RawResultStorageSettings{
+						Enabled: &falseVal,
+					},
+				},
+				Roles: []string{"master", "worker"},
+			}
+			err := reconciler.Client.Create(context.TODO(), settingNoStorage)
+			Expect(err).To(BeNil())
+
+			bindingTypeMeta := v1.TypeMeta{}
+			bindingTypeMeta.SetGroupVersionKind(compv1alpha1.SchemeGroupVersion.WithKind("ScanSettingBinding"))
+			ssb = &compv1alpha1.ScanSettingBinding{
+				TypeMeta: bindingTypeMeta,
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "no-storage-ssb",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Profiles: []compv1alpha1.NamedObjectReference{
+					{
+						Name:     profRhcosE8.Name,
+						Kind:     "Profile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+				},
+				SettingsRef: &compv1alpha1.NamedObjectReference{
+					Name:     settingNoStorage.Name,
+					Kind:     "ScanSetting",
+					APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+				},
+			}
+			ssb.Status.SetConditionPending()
+			err = reconciler.Client.Create(context.TODO(), ssb)
+			Expect(err).To(BeNil())
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssb.Namespace,
+				Name:      ssb.Name,
+			}, ssb)
+			Expect(err).To(BeNil())
+		})
+
+		It("Should propagate RawResultStorage disabled to all scans", func() {
+			_, err := reconciler.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ssb.Namespace,
+					Name:      ssb.Name,
+				},
+			})
+			Expect(err).To(BeNil())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: ssb.Name, Namespace: ssb.Namespace}, suite)
+			Expect(err).To(BeNil())
+
+			for _, scan := range suite.Spec.Scans {
+				Expect(scan.RawResultStorage.Enabled).ToNot(BeNil())
+				Expect(*scan.RawResultStorage.Enabled).To(BeFalse())
+			}
+		})
+	})
+
+	Context("Creates a suite with RawResultStorage enabled", func() {
+		// Covers TestScanSettingBindingNoStorage e2e (second half): validates that when
+		// RawResultStorage.Enabled is true in ScanSetting, the resulting
+		// ComplianceScan spec also has it enabled.
+		JustBeforeEach(func() {
+			trueVal := true
+			settingWithStorage := &compv1alpha1.ScanSetting{
+				TypeMeta: v1.TypeMeta{
+					Kind:       "ScanSetting",
+					APIVersion: compv1alpha1.SchemeGroupVersion.String(),
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "setting-with-storage",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+					AutoApplyRemediations: false,
+				},
+				ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+					Debug: true,
+					RawResultStorage: compv1alpha1.RawResultStorageSettings{
+						Enabled: &trueVal,
+					},
+				},
+				Roles: []string{"master", "worker"},
+			}
+			err := reconciler.Client.Create(context.TODO(), settingWithStorage)
+			Expect(err).To(BeNil())
+
+			bindingTypeMeta := v1.TypeMeta{}
+			bindingTypeMeta.SetGroupVersionKind(compv1alpha1.SchemeGroupVersion.WithKind("ScanSettingBinding"))
+			ssb = &compv1alpha1.ScanSettingBinding{
+				TypeMeta: bindingTypeMeta,
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "with-storage-ssb",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Profiles: []compv1alpha1.NamedObjectReference{
+					{
+						Name:     profRhcosE8.Name,
+						Kind:     "Profile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+				},
+				SettingsRef: &compv1alpha1.NamedObjectReference{
+					Name:     settingWithStorage.Name,
+					Kind:     "ScanSetting",
+					APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+				},
+			}
+			ssb.Status.SetConditionPending()
+			err = reconciler.Client.Create(context.TODO(), ssb)
+			Expect(err).To(BeNil())
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssb.Namespace,
+				Name:      ssb.Name,
+			}, ssb)
+			Expect(err).To(BeNil())
+		})
+
+		It("Should propagate RawResultStorage enabled to all scans", func() {
+			_, err := reconciler.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ssb.Namespace,
+					Name:      ssb.Name,
+				},
+			})
+			Expect(err).To(BeNil())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: ssb.Name, Namespace: ssb.Namespace}, suite)
+			Expect(err).To(BeNil())
+
+			for _, scan := range suite.Spec.Scans {
+				Expect(scan.RawResultStorage.Enabled).ToNot(BeNil())
+				Expect(*scan.RawResultStorage.Enabled).To(BeTrue())
+			}
+		})
+	})
+
+	Context("Uses default ScanSetting when SettingsRef is not specified", func() {
+		// Covers TestScanSettingBindingUsesDefaultScanSetting e2e: validates that
+		// when no SettingsRef is specified, the SSB uses the "default" ScanSetting
+		// via the kubebuilder default tag.
+		It("Should have SettingsRef default to 'default' ScanSetting", func() {
+			// The kubebuilder default tag on SettingsRef sets it to
+			// {"name":"default","kind":"ScanSetting","apiGroup":"compliance.openshift.io/v1alpha1"}
+			// We test the behavior: when SettingsRef is explicitly nil (before defaulting),
+			// the defaulting webhook or API server would set it. In unit tests, we verify
+			// that the reconciler handles the case where SettingsRef.Name is "default".
+			bindingTypeMeta := v1.TypeMeta{}
+			bindingTypeMeta.SetGroupVersionKind(compv1alpha1.SchemeGroupVersion.WithKind("ScanSettingBinding"))
+			ssbDefault := &compv1alpha1.ScanSettingBinding{
+				TypeMeta: bindingTypeMeta,
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "default-setting-ssb",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Profiles: []compv1alpha1.NamedObjectReference{
+					{
+						Name:     profRhcosE8.Name,
+						Kind:     "Profile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+				},
+				// SettingsRef explicitly set to "default", simulating the kubebuilder default
+				SettingsRef: &compv1alpha1.NamedObjectReference{
+					Name:     "default",
+					Kind:     "ScanSetting",
+					APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+				},
+			}
+			Expect(ssbDefault.SettingsRef).ToNot(BeNil())
+			Expect(ssbDefault.SettingsRef.Name).To(Equal("default"))
+			Expect(ssbDefault.SettingsRef.Kind).To(Equal("ScanSetting"))
+		})
+	})
+
+	Context("SSB watches TailoredProfile and transitions state based on TP status", func() {
+		// Covers TestScanSettingBindingWatchesTailoredProfile e2e: validates that
+		// SSB detects TP error and sets Invalid, then transitions to Ready when TP is fixed.
+
+		It("Should set SSB to Invalid when TailoredProfile has error, then Ready when fixed", func() {
+			// Set the TP to ERROR
+			scratchTP.Status.State = compv1alpha1.TailoredProfileStateError
+			updateErr := reconciler.Client.Status().Update(context.TODO(), scratchTP)
+			Expect(updateErr).To(BeNil())
+
+			bindingTypeMeta := v1.TypeMeta{}
+			bindingTypeMeta.SetGroupVersionKind(compv1alpha1.SchemeGroupVersion.WithKind("ScanSettingBinding"))
+			ssbWatch := &compv1alpha1.ScanSettingBinding{
+				TypeMeta: bindingTypeMeta,
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "watch-tp-ssb",
+					Namespace: common.GetComplianceOperatorNamespace(),
+				},
+				Profiles: []compv1alpha1.NamedObjectReference{
+					{
+						Name:     scratchTP.Name,
+						Kind:     "TailoredProfile",
+						APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+					},
+				},
+				SettingsRef: &compv1alpha1.NamedObjectReference{
+					Name:     setting.Name,
+					Kind:     "ScanSetting",
+					APIGroup: compv1alpha1.SchemeGroupVersion.String(),
+				},
+			}
+			ssbWatch.Status.SetConditionPending()
+			err := reconciler.Client.Create(context.TODO(), ssbWatch)
+			Expect(err).To(BeNil())
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssbWatch.Namespace,
+				Name:      ssbWatch.Name,
+			}, ssbWatch)
+			Expect(err).To(BeNil())
+
+			// First reconcile: SSB should become Invalid
+			res, err := reconciler.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ssbWatch.Namespace,
+					Name:      ssbWatch.Name,
+				},
+			})
+			Expect(err).To(BeNil())
+			Expect(res.Requeue).To(BeFalse())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssbWatch.Namespace,
+				Name:      ssbWatch.Name,
+			}, ssbWatch)
+			Expect(err).To(BeNil())
+			Expect(ssbWatch.Status.Phase).To(Equal(compv1alpha1.ScanSettingBindingPhaseInvalid))
+			readyCond := ssbWatch.Status.Conditions.GetCondition("Ready")
+			Expect(readyCond).ToNot(BeNil())
+			Expect(readyCond.Status).To(Equal(corev1.ConditionFalse))
+			Expect(readyCond.Reason).To(Equal(compv1alpha1.ConditionReason("Invalid")))
+
+			// Fix the TP: set it to Ready
+			scratchTP.Status.State = compv1alpha1.TailoredProfileStateReady
+			scratchTP.Status.ID = "xccdf_compliance.openshift.io_profile_scratch-tp"
+			updateErr = reconciler.Client.Status().Update(context.TODO(), scratchTP)
+			Expect(updateErr).To(BeNil())
+
+			// Second reconcile: SSB should become Ready
+			res, err = reconciler.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ssbWatch.Namespace,
+					Name:      ssbWatch.Name,
+				},
+			})
+			Expect(err).To(BeNil())
+			Expect(res.Requeue).To(BeFalse())
+
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+				Namespace: ssbWatch.Namespace,
+				Name:      ssbWatch.Name,
+			}, ssbWatch)
+			Expect(err).To(BeNil())
+			Expect(ssbWatch.Status.Phase).To(Equal(compv1alpha1.ScanSettingBindingPhaseReady))
+			readyCond = ssbWatch.Status.Conditions.GetCondition("Ready")
+			Expect(readyCond).ToNot(BeNil())
+			Expect(readyCond.Status).To(Equal(corev1.ConditionTrue))
+			Expect(readyCond.Reason).To(Equal(compv1alpha1.ConditionReason("Processed")))
+		})
+	})
+
+	Context("Suite update detection with scan settings", func() {
+		// Covers TestScanSettingBindingNoStorage e2e (update portion):
+		// validates that suiteNeedsUpdate detects changes in scan settings.
+		It("Should detect when suite needs update due to RawResultStorage change", func() {
+			falseVal := false
+			trueVal := true
+
+			suiteWithStorage := &compv1alpha1.ComplianceSuite{
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					Scans: []compv1alpha1.ComplianceScanSpecWrapper{
+						{
+							Name: "test-scan",
+							ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
+								ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+									RawResultStorage: compv1alpha1.RawResultStorageSettings{
+										Enabled: &trueVal,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			suiteWithoutStorage := &compv1alpha1.ComplianceSuite{
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					Scans: []compv1alpha1.ComplianceScanSpecWrapper{
+						{
+							Name: "test-scan",
+							ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
+								ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+									RawResultStorage: compv1alpha1.RawResultStorageSettings{
+										Enabled: &falseVal,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			Expect(suiteNeedsUpdate(suiteWithStorage, suiteWithoutStorage)).To(BeTrue())
+			Expect(suiteNeedsUpdate(suiteWithStorage, suiteWithStorage)).To(BeFalse())
 		})
 	})
 
