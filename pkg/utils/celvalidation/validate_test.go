@@ -136,6 +136,112 @@ func TestValidateCELRule(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "at least one input is required",
 		},
+		// --- Tests corresponding to e2e TestCustomRuleValidation (invalid function) ---
+		{
+			name:     "invalid CEL expression with non-existent function",
+			ruleName: "invalid-function",
+			payload: v1alpha1.RulePayload{
+				ScannerType: v1alpha1.ScannerTypeCEL,
+				Expression:  "pods.items.all(pod, invalid_function_that_doesnt_exist(pod))",
+				Inputs: []v1alpha1.InputPayload{
+					{
+						Name: "pods",
+						KubernetesInputSpec: v1alpha1.KubernetesInputSpec{
+							APIVersion: "v1",
+							Resource:   "pods",
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "CEL expression compilation failed",
+		},
+		// --- Tests corresponding to e2e TestCustomRuleValidation (undeclared variable in expression) ---
+		{
+			name:     "undeclared variable deployments used in expression but not declared as input",
+			ruleName: "undeclared-deployments",
+			payload: v1alpha1.RulePayload{
+				ScannerType: v1alpha1.ScannerTypeCEL,
+				Expression:  "pods.items.all(pod, deployments.items.exists(d, d.metadata.name == pod.metadata.name))",
+				Inputs: []v1alpha1.InputPayload{
+					{
+						Name: "pods",
+						KubernetesInputSpec: v1alpha1.KubernetesInputSpec{
+							APIVersion: "v1",
+							Resource:   "pods",
+						},
+					},
+					// 'deployments' is used in the expression but NOT declared here
+				},
+			},
+			wantErr:   true,
+			errSubstr: "CEL expression compilation failed",
+		},
+		// --- Tests corresponding to e2e TestCustomRuleWithMultipleInputs ---
+		{
+			name:     "valid multiple inputs with namespaces and network policies",
+			ruleName: "multi-input-netpol",
+			payload: v1alpha1.RulePayload{
+				Title:       "Namespaces Must Have Network Policies",
+				Description: "Ensures all namespaces have at least one network policy",
+				ScannerType: v1alpha1.ScannerTypeCEL,
+				Expression: `namespaces.items.all(ns,
+					ns.metadata.name.startsWith("kube-") ||
+					ns.metadata.name == "default" ||
+					networkpolicies.items.exists(np,
+						np.metadata.namespace == ns.metadata.name
+					)
+				)`,
+				Inputs: []v1alpha1.InputPayload{
+					{
+						Name: "namespaces",
+						KubernetesInputSpec: v1alpha1.KubernetesInputSpec{
+							APIVersion: "v1",
+							Resource:   "namespaces",
+						},
+					},
+					{
+						Name: "networkpolicies",
+						KubernetesInputSpec: v1alpha1.KubernetesInputSpec{
+							Group:      "networking.k8s.io",
+							APIVersion: "v1",
+							Resource:   "networkpolicies",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		// --- Tests corresponding to e2e TestCustomRuleTailoredProfile (CEL expression with filter) ---
+		{
+			name:     "valid CEL expression with filter and label check",
+			ruleName: "filter-label-check",
+			payload: v1alpha1.RulePayload{
+				Title:       "Test Pods Must Have Security Context",
+				Description: "Ensures test pods with specific label have proper security context",
+				ScannerType: v1alpha1.ScannerTypeCEL,
+				Expression: `pods.items.filter(pod,
+					has(pod.metadata.labels) &&
+					"customrule-test" in pod.metadata.labels &&
+					pod.metadata.labels["customrule-test"] == "test-value"
+				).all(pod,
+					has(pod.spec.securityContext) &&
+					pod.spec.securityContext.runAsNonRoot == true
+				)`,
+				Inputs: []v1alpha1.InputPayload{
+					{
+						Name: "pods",
+						KubernetesInputSpec: v1alpha1.KubernetesInputSpec{
+							APIVersion:        "v1",
+							Resource:          "pods",
+							ResourceNamespace: "test-ns",
+						},
+					},
+				},
+				FailureReason: "Test pod(s) found without proper security context",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -117,7 +117,7 @@ var _ = Describe("TailoredprofileController", func() {
 
 		client := fake.NewClientBuilder().
 			WithScheme(cscheme).
-			WithStatusSubresource(&compv1alpha1.TailoredProfile{}).
+			WithStatusSubresource(&compv1alpha1.TailoredProfile{}, &compv1alpha1.CustomRule{}).
 			WithRuntimeObjects(objs...).
 			Build()
 
@@ -1355,12 +1355,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_1",
-							Title:        "Test Custom Rule",
-							Description:  "A test custom rule",
-							Severity:     "medium",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "true",
+							ID:          "custom_rule_1",
+							Title:       "Test Custom Rule",
+							Description: "A test custom rule",
+							Severity:    "medium",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",
@@ -1446,12 +1446,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_2",
-							Title:        "Test Custom Rule with Error",
-							Description:  "A test custom rule with validation error",
-							Severity:     "high",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "invalid expression",
+							ID:          "custom_rule_2",
+							Title:       "Test Custom Rule with Error",
+							Description: "A test custom rule with validation error",
+							Severity:    "high",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "invalid expression",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",
@@ -1535,12 +1535,12 @@ var _ = Describe("TailoredprofileController", func() {
 					},
 					Spec: compv1alpha1.CustomRuleSpec{
 						RulePayload: compv1alpha1.RulePayload{
-							ID:           "custom_rule_3",
-							Title:        "Test Custom Rule Pending",
-							Description:  "A test custom rule pending validation",
-							Severity:     "low",
-							ScannerType:  compv1alpha1.ScannerTypeCEL,
-							Expression:   "true",
+							ID:          "custom_rule_3",
+							Title:       "Test Custom Rule Pending",
+							Description: "A test custom rule pending validation",
+							Severity:    "low",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
 							Inputs: []compv1alpha1.InputPayload{
 								{
 									Name: "pods",
@@ -1735,6 +1735,447 @@ var _ = Describe("TailoredprofileController", func() {
 				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
 				Expect(tp.Status.ErrorMessage).To(ContainSubstring("unsupported ScannerType"))
 			})
+		})
+	})
+
+	// Tests corresponding to e2e TestCustomRuleCascadingStatusUpdate:
+	// When a CustomRule transitions from Ready to Error, the TailoredProfile
+	// that references it should also transition to Error state.
+	Describe("TailoredProfile cascading status from CustomRule", func() {
+		Context("when a referenced CustomRule transitions from Ready to Error", func() {
+			var (
+				cascTpName   = "test-tp-cascading-rte"
+				cascRuleName = "test-cascading-rte-rule"
+			)
+
+			BeforeEach(func() {
+				// Create a CustomRule initially in Ready state
+				customRule := &compv1alpha1.CustomRule{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cascRuleName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.CustomRuleSpec{
+						RulePayload: compv1alpha1.RulePayload{
+							ID:          "cascading_rule",
+							Title:       "Cascading Test Rule",
+							Description: "A rule for testing cascading status updates",
+							Severity:    "medium",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
+							Inputs: []compv1alpha1.InputPayload{
+								{
+									Name: "pods",
+									KubernetesInputSpec: compv1alpha1.KubernetesInputSpec{
+										Group:      "",
+										APIVersion: "v1",
+										Resource:   "pods",
+									},
+								},
+							},
+							FailureReason: "Test error",
+						},
+					},
+					Status: compv1alpha1.CustomRuleStatus{
+						Phase: compv1alpha1.CustomRulePhaseReady,
+					},
+				}
+				createErr := r.Client.Create(ctx, customRule)
+				Expect(createErr).To(BeNil())
+
+				// Create TailoredProfile referencing the CustomRule
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cascTpName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						Title:       "Cascading Test Profile",
+						Description: "Test profile for cascading status updates",
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name: cascRuleName,
+								Kind: compv1alpha1.CustomRuleKind,
+							},
+						},
+					},
+				}
+				createErr = r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			AfterEach(func() {
+				tp := &compv1alpha1.TailoredProfile{}
+				r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				r.Client.Delete(ctx, tp)
+
+				customRule := &compv1alpha1.CustomRule{}
+				r.Client.Get(ctx, types.NamespacedName{Name: cascRuleName, Namespace: namespace}, customRule)
+				r.Client.Delete(ctx, customRule)
+			})
+
+			It("should set the TailoredProfile to Ready initially then Error after CustomRule becomes Error", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      cascTpName,
+						Namespace: namespace,
+					},
+				}
+
+				By("First reconcile - set annotations/ownership")
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Second reconcile - should process CustomRules and set Ready status")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateReady))
+
+				By("Now update the CustomRule to Error state (simulating invalid expression)")
+				customRule := &compv1alpha1.CustomRule{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascRuleName, Namespace: namespace}, customRule)
+				Expect(err).To(BeNil())
+				customRule.Status.Phase = compv1alpha1.CustomRulePhaseError
+				customRule.Status.ErrorMessage = "CEL expression validation failed: undeclared reference"
+				err = r.Client.Status().Update(ctx, customRule)
+				Expect(err).To(BeNil())
+
+				By("Reconcile TailoredProfile - should cascade to Error state")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
+				Expect(tp.Status.ErrorMessage).To(ContainSubstring("CustomRule"))
+				Expect(tp.Status.ErrorMessage).To(ContainSubstring("validation errors"))
+			})
+		})
+
+		Context("when a referenced CustomRule recovers from Error to Ready", func() {
+			var (
+				cascTpName   = "test-tp-cascading-etr"
+				cascRuleName = "test-cascading-etr-rule"
+			)
+
+			BeforeEach(func() {
+				// Create a CustomRule initially in Error state
+				customRule := &compv1alpha1.CustomRule{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cascRuleName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.CustomRuleSpec{
+						RulePayload: compv1alpha1.RulePayload{
+							ID:          "cascading_rule_recover",
+							Title:       "Recovery Test Rule",
+							Description: "A rule for testing status recovery",
+							Severity:    "medium",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
+							Inputs: []compv1alpha1.InputPayload{
+								{
+									Name: "pods",
+									KubernetesInputSpec: compv1alpha1.KubernetesInputSpec{
+										Group:      "",
+										APIVersion: "v1",
+										Resource:   "pods",
+									},
+								},
+							},
+							FailureReason: "Test error",
+						},
+					},
+					Status: compv1alpha1.CustomRuleStatus{
+						Phase:        compv1alpha1.CustomRulePhaseError,
+						ErrorMessage: "CEL expression validation failed",
+					},
+				}
+				createErr := r.Client.Create(ctx, customRule)
+				Expect(createErr).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cascTpName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						Title:       "Recovery Test Profile",
+						Description: "Test profile for recovery from error",
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name: cascRuleName,
+								Kind: compv1alpha1.CustomRuleKind,
+							},
+						},
+					},
+				}
+				createErr = r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			AfterEach(func() {
+				tp := &compv1alpha1.TailoredProfile{}
+				r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				r.Client.Delete(ctx, tp)
+
+				customRule := &compv1alpha1.CustomRule{}
+				r.Client.Get(ctx, types.NamespacedName{Name: cascRuleName, Namespace: namespace}, customRule)
+				r.Client.Delete(ctx, customRule)
+			})
+
+			It("should transition TP from Error to Ready when CustomRule is fixed", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      cascTpName,
+						Namespace: namespace,
+					},
+				}
+
+				By("Reconcile with CustomRule in Error state")
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
+
+				By("Fix the CustomRule - set to Ready")
+				customRule := &compv1alpha1.CustomRule{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascRuleName, Namespace: namespace}, customRule)
+				Expect(err).To(BeNil())
+				customRule.Status.Phase = compv1alpha1.CustomRulePhaseReady
+				customRule.Status.ErrorMessage = ""
+				err = r.Client.Status().Update(ctx, customRule)
+				Expect(err).To(BeNil())
+
+				By("First reconcile after fix - set annotations")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				By("Second reconcile after fix - should recover to Ready")
+				_, err = r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				err = r.Client.Get(ctx, types.NamespacedName{Name: cascTpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateReady))
+			})
+		})
+	})
+
+	// Tests corresponding to e2e TestTailoredProfileRejectsMixedRuleTypes (called from
+	// TestCustomRuleCheckTypeAndScannerTypeValidation area). Validates that mixing
+	// CustomRules with OpenSCAP Rules in a single TailoredProfile produces an error.
+	Describe("TailoredProfile rejects mixing CustomRules with OpenSCAP Rules", func() {
+		var (
+			mixedTpName   = "test-tp-mixed-reject"
+			mixedRuleName = "test-mixed-custom-rule"
+		)
+
+		Context("with CustomRule and OpenSCAP Rule in the same TailoredProfile", func() {
+			BeforeEach(func() {
+				// Create a valid CustomRule
+				customRule := &compv1alpha1.CustomRule{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      mixedRuleName,
+						Namespace: namespace,
+					},
+					Spec: compv1alpha1.CustomRuleSpec{
+						RulePayload: compv1alpha1.RulePayload{
+							ID:          "mixed_custom_rule",
+							Title:       "No Privileged Containers",
+							Description: "Ensures no containers are running in privileged mode",
+							Severity:    "high",
+							ScannerType: compv1alpha1.ScannerTypeCEL,
+							Expression:  "true",
+							Inputs: []compv1alpha1.InputPayload{
+								{
+									Name: "pods",
+									KubernetesInputSpec: compv1alpha1.KubernetesInputSpec{
+										Group:      "",
+										APIVersion: "v1",
+										Resource:   "pods",
+									},
+								},
+							},
+							FailureReason: "Privileged container(s) found",
+						},
+					},
+					Status: compv1alpha1.CustomRuleStatus{
+						Phase: compv1alpha1.CustomRulePhaseReady,
+					},
+				}
+				createErr := r.Client.Create(ctx, customRule)
+				Expect(createErr).To(BeNil())
+
+				// TailoredProfile that mixes CustomRules and regular Rules
+				tp := &compv1alpha1.TailoredProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      mixedTpName,
+						Namespace: namespace,
+						Annotations: map[string]string{
+							compv1alpha1.DisableOutdatedReferenceValidation: "true",
+						},
+					},
+					Spec: compv1alpha1.TailoredProfileSpec{
+						Title:       "Mixed Rule Types Test",
+						Description: "This profile incorrectly mixes CustomRules and regular Rules",
+						EnableRules: []compv1alpha1.RuleReferenceSpec{
+							{
+								Name:      mixedRuleName,
+								Kind:      compv1alpha1.CustomRuleKind,
+								Rationale: "Ensure containers are not privileged",
+							},
+							{
+								Name:      "rule-1",
+								Kind:      compv1alpha1.RuleKind,
+								Rationale: "An OpenSCAP rule",
+							},
+						},
+					},
+				}
+				createErr = r.Client.Create(ctx, tp)
+				Expect(createErr).To(BeNil())
+			})
+
+			AfterEach(func() {
+				tp := &compv1alpha1.TailoredProfile{}
+				r.Client.Get(ctx, types.NamespacedName{Name: mixedTpName, Namespace: namespace}, tp)
+				r.Client.Delete(ctx, tp)
+
+				customRule := &compv1alpha1.CustomRule{}
+				r.Client.Get(ctx, types.NamespacedName{Name: mixedRuleName, Namespace: namespace}, customRule)
+				r.Client.Delete(ctx, customRule)
+			})
+
+			It("should set the TailoredProfile to Error state with mixed rule types message", func() {
+				tpReq := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      mixedTpName,
+						Namespace: namespace,
+					},
+				}
+
+				_, err := r.Reconcile(context.TODO(), tpReq)
+				Expect(err).To(BeNil())
+
+				tp := &compv1alpha1.TailoredProfile{}
+				err = r.Client.Get(ctx, types.NamespacedName{Name: mixedTpName, Namespace: namespace}, tp)
+				Expect(err).To(BeNil())
+				Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateError))
+				Expect(tp.Status.ErrorMessage).To(ContainSubstring("cannot mix CEL rules (CustomRules) with OpenSCAP Rules"))
+			})
+		})
+	})
+
+	// Test corresponding to the TailoredProfile part of e2e TestCustomRuleTailoredProfile:
+	// A TailoredProfile with only CustomRules should become Ready when the CustomRules are valid.
+	Describe("TailoredProfile with only CustomRules becomes Ready", func() {
+		var (
+			onlyTpName   = "test-tp-customrule-only"
+			onlyRuleName = "test-security-context-rule"
+		)
+
+		BeforeEach(func() {
+			customRule := &compv1alpha1.CustomRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      onlyRuleName,
+					Namespace: namespace,
+				},
+				Spec: compv1alpha1.CustomRuleSpec{
+					RulePayload: compv1alpha1.RulePayload{
+						ID:          onlyRuleName,
+						Title:       "Test Pods Must Have Security Context",
+						Description: "Ensures test pods have proper security context",
+						Severity:    "high",
+						ScannerType: compv1alpha1.ScannerTypeCEL,
+						Expression:  "pods.items.all(pod, has(pod.spec.securityContext) && pod.spec.securityContext.runAsNonRoot == true)",
+						Inputs: []compv1alpha1.InputPayload{
+							{
+								Name: "pods",
+								KubernetesInputSpec: compv1alpha1.KubernetesInputSpec{
+									APIVersion:        "v1",
+									Resource:          "pods",
+									ResourceNamespace: namespace,
+								},
+							},
+						},
+						FailureReason: "Test pod(s) found without proper security context",
+					},
+				},
+				Status: compv1alpha1.CustomRuleStatus{
+					Phase: compv1alpha1.CustomRulePhaseReady,
+				},
+			}
+			createErr := r.Client.Create(ctx, customRule)
+			Expect(createErr).To(BeNil())
+
+			tp := &compv1alpha1.TailoredProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      onlyTpName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						compv1alpha1.DisableOutdatedReferenceValidation: "true",
+					},
+				},
+				Spec: compv1alpha1.TailoredProfileSpec{
+					Title:       "Custom Security Checks",
+					Description: "Test profile using CEL-based CustomRules",
+					EnableRules: []compv1alpha1.RuleReferenceSpec{
+						{
+							Name:      onlyRuleName,
+							Kind:      compv1alpha1.CustomRuleKind,
+							Rationale: "Security best practice requires pods to run as non-root",
+						},
+					},
+				},
+			}
+			createErr = r.Client.Create(ctx, tp)
+			Expect(createErr).To(BeNil())
+		})
+
+		AfterEach(func() {
+			tp := &compv1alpha1.TailoredProfile{}
+			r.Client.Get(ctx, types.NamespacedName{Name: onlyTpName, Namespace: namespace}, tp)
+			r.Client.Delete(ctx, tp)
+
+			customRule := &compv1alpha1.CustomRule{}
+			r.Client.Get(ctx, types.NamespacedName{Name: onlyRuleName, Namespace: namespace}, customRule)
+			r.Client.Delete(ctx, customRule)
+		})
+
+		It("should set CEL annotations and reach Ready state", func() {
+			tpReq := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      onlyTpName,
+					Namespace: namespace,
+				},
+			}
+
+			By("First reconcile - set annotations")
+			_, err := r.Reconcile(context.TODO(), tpReq)
+			Expect(err).To(BeNil())
+
+			tp := &compv1alpha1.TailoredProfile{}
+			err = r.Client.Get(ctx, types.NamespacedName{Name: onlyTpName, Namespace: namespace}, tp)
+			Expect(err).To(BeNil())
+			Expect(tp.GetAnnotations()[cmpv1alpha1.ScannerTypeAnnotation]).To(Equal(string(compv1alpha1.ScannerTypeCEL)))
+			Expect(tp.GetAnnotations()[cmpv1alpha1.ProductTypeAnnotation]).To(Equal(string(compv1alpha1.ScanTypePlatform)))
+			Expect(tp.GetAnnotations()[cmpv1alpha1.CustomRuleProfileAnnotation]).To(Equal("true"))
+
+			By("Second reconcile - should reach Ready status")
+			_, err = r.Reconcile(context.TODO(), tpReq)
+			Expect(err).To(BeNil())
+
+			err = r.Client.Get(ctx, types.NamespacedName{Name: onlyTpName, Namespace: namespace}, tp)
+			Expect(err).To(BeNil())
+			Expect(tp.Status.State).To(Equal(compv1alpha1.TailoredProfileStateReady))
 		})
 	})
 
