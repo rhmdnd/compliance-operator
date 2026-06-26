@@ -6,6 +6,7 @@ import (
 
 	"github.com/ComplianceAsCode/compliance-operator/pkg/apis"
 	compv1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
+	"github.com/ComplianceAsCode/compliance-operator/pkg/controller/common"
 	"github.com/ComplianceAsCode/compliance-operator/pkg/controller/metrics"
 	"github.com/ComplianceAsCode/compliance-operator/pkg/controller/metrics/metricsfakes"
 	"github.com/clarketm/json"
@@ -781,6 +782,151 @@ var _ = Describe("Testing complianceremediation controller", func() {
 
 		})
 
+	})
+
+	Context("applying a generic remediation and verifying operator annotation", func() {
+		// Corresponds to e2e TestApplyGenericRemediation
+		BeforeEach(func() {
+			remediationinstance.Spec.Apply = true
+			cm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "ConfigMap",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "generic-rem-cm",
+					Namespace: "test-ns",
+				},
+				Data: map[string]string{
+					"key": "value",
+				},
+			}
+			unstructuredCM, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+			Expect(err).ToNot(HaveOccurred())
+			remediationinstance.Spec.Current.Object = &unstructured.Unstructured{
+				Object: unstructuredCM,
+			}
+			err = reconciler.Client.Update(context.TODO(), remediationinstance)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should create the target object with the operator annotation", func() {
+			err := reconciler.reconcileRemediation(remediationinstance, logger)
+			Expect(err).To(BeNil())
+
+			foundCM := &corev1.ConfigMap{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: "generic-rem-cm", Namespace: "test-ns"}, foundCM)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(foundCM.Data["key"]).To(Equal("value"))
+
+			Expect(compv1alpha1.RemediationWasCreatedByOperator(foundCM)).To(BeTrue())
+		})
+	})
+
+	Context("patching an existing object via generic remediation", func() {
+		// Corresponds to e2e TestPatchGenericRemediation
+		BeforeEach(func() {
+			remediationinstance.Spec.Apply = true
+
+			existingCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "patch-target-cm",
+					Namespace: "test-ns",
+				},
+				Data: map[string]string{
+					"existingKey": "existingData",
+				},
+			}
+			err := reconciler.Client.Create(context.TODO(), existingCM)
+			Expect(err).NotTo(HaveOccurred())
+
+			cm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "ConfigMap",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "patch-target-cm",
+					Namespace: "test-ns",
+				},
+				Data: map[string]string{
+					"newKey": "newData",
+				},
+			}
+			unstructuredCM, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+			Expect(err).ToNot(HaveOccurred())
+			remediationinstance.Spec.Current.Object = &unstructured.Unstructured{
+				Object: unstructuredCM,
+			}
+			err = reconciler.Client.Update(context.TODO(), remediationinstance)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should merge new data into the existing object", func() {
+			err := reconciler.reconcileRemediation(remediationinstance, logger)
+			Expect(err).To(BeNil())
+
+			foundCM := &corev1.ConfigMap{}
+			err = reconciler.Client.Get(context.TODO(), types.NamespacedName{Name: "patch-target-cm", Namespace: "test-ns"}, foundCM)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(foundCM.Data["existingKey"]).To(Equal("existingData"))
+			Expect(foundCM.Data["newKey"]).To(Equal("newData"))
+		})
+	})
+
+	Context("remediation with unknown object type fails", func() {
+		// Corresponds to e2e TestGenericRemediationFailsWithUnknownType
+		// The e2e test verifies that a remediation with an unknown Kind
+		// transitions to RemediationError state. The fake client does not
+		// reject unknown types the way a real API server does, so we test
+		// the status-setting logic directly: when reconcileRemediation returns
+		// a non-retriable error, setRemediationStatus must mark the
+		// remediation as RemediationError.
+		BeforeEach(func() {
+			remediationinstance.Spec.Apply = true
+			remediationinstance.Spec.Current.Object = &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"kind":       "OopsyDoodle",
+					"apiVersion": "foo.bar/v1",
+					"metadata": map[string]interface{}{
+						"name":      "unknown-remediation",
+						"namespace": "test-ns",
+					},
+					"data": map[string]interface{}{
+						"key": "value",
+					},
+				},
+			}
+			err := reconciler.Client.Update(context.TODO(), remediationinstance)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should set the remediation status to error when a non-retriable error occurs", func() {
+			// Simulate the error that would occur on a real cluster when
+			// the API server cannot find the resource type
+			simulatedErr := common.NewNonRetriableCtrlError(
+				"Unable to get fix object for ComplianceRemediation. " +
+					"Make sure the CRD is installed: no matches for kind \"OopsyDoodle\" in version \"foo.bar/v1\"")
+
+			reconciler.setRemediationStatus(remediationinstance, simulatedErr, logger)
+			Expect(remediationinstance.Status.ApplicationState).To(Equal(compv1alpha1.RemediationError))
+			Expect(remediationinstance.Status.ErrorMessage).To(ContainSubstring("OopsyDoodle"))
+		})
+
+		It("should set status to Applied when no error occurs and no unset values", func() {
+			// Clear annotations that would cause NeedsReview status
+			remediationinstance.Annotations = map[string]string{}
+			reconciler.setRemediationStatus(remediationinstance, nil, logger)
+			Expect(remediationinstance.Status.ApplicationState).To(Equal(compv1alpha1.RemediationApplied))
+		})
+
+		It("should set status to NotApplied when Apply is false and no error occurs", func() {
+			remediationinstance.Spec.Apply = false
+			remediationinstance.Annotations = map[string]string{}
+			reconciler.setRemediationStatus(remediationinstance, nil, logger)
+			Expect(remediationinstance.Status.ApplicationState).To(Equal(compv1alpha1.RemediationNotApplied))
+		})
 	})
 
 	Context("un-applying remediations", func() {

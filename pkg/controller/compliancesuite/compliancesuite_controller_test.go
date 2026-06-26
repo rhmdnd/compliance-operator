@@ -15,17 +15,331 @@ import (
 	mcfgapi "github.com/openshift/api/machineconfiguration"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"go.uber.org/zap"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	compv1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
 )
+
+var _ = Describe("ComplianceSuiteScheduleValidation", func() {
+	var (
+		reconciler *ReconcileComplianceSuite
+		logger     logr.Logger
+		ctx        = context.Background()
+		namespace  = "test-ns"
+	)
+
+	BeforeEach(func() {
+		cscheme := scheme.Scheme
+		err := apis.AddToScheme(cscheme)
+		Expect(err).To(BeNil())
+		err = mcfgapi.Install(cscheme)
+		Expect(err).To(BeNil())
+
+		cl := fake.NewClientBuilder().
+			WithScheme(cscheme).
+			WithStatusSubresource(&compv1alpha1.ComplianceSuite{}).
+			Build()
+
+		mockMetrics := metrics.NewMetrics(&metricsfakes.FakeImpl{})
+		err = mockMetrics.Register()
+		Expect(err).To(BeNil())
+
+		recorder := record.NewFakeRecorder(10)
+		reconciler = &ReconcileComplianceSuite{Reader: cl, Client: cl, Scheme: cscheme, Metrics: mockMetrics, Recorder: recorder}
+		zaplog, _ := zap.NewDevelopment()
+		logger = zapr.NewLogger(zaplog)
+		_ = logger
+	})
+
+	// Corresponds to e2e TestSuiteWithInvalidScheduleShowsError
+	Context("With an invalid cron schedule", func() {
+		It("should report the suite as invalid", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "invalid-schedule-suite",
+					Namespace: namespace,
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "This is WRONG",
+					},
+				},
+			}
+			isValid, errorMsg := reconciler.validateSchedule(suite)
+			Expect(isValid).To(BeFalse())
+			Expect(errorMsg).To(ContainSubstring("wrongly formatted"))
+		})
+	})
+
+	Context("With a valid cron schedule", func() {
+		It("should report the suite as valid", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "valid-schedule-suite",
+					Namespace: namespace,
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "*/2 * * * *",
+					},
+				},
+			}
+			isValid, errorMsg := reconciler.validateSchedule(suite)
+			Expect(isValid).To(BeTrue())
+			Expect(errorMsg).To(BeEmpty())
+		})
+	})
+
+	Context("With an empty schedule", func() {
+		It("should report the suite as valid", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "empty-schedule-suite",
+					Namespace: namespace,
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "",
+					},
+				},
+			}
+			isValid, errorMsg := reconciler.validateSchedule(suite)
+			Expect(isValid).To(BeTrue())
+			Expect(errorMsg).To(BeEmpty())
+		})
+	})
+
+	// Corresponds to e2e TestSuiteWithInvalidScheduleShowsError (error message format)
+	Context("When issuing a validation error", func() {
+		It("should set error status with expected message format", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "error-suite",
+					Namespace: namespace,
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "This is WRONG",
+					},
+				},
+			}
+			err := reconciler.Client.Create(ctx, suite)
+			Expect(err).To(BeNil())
+
+			isValid, errorMsg := reconciler.validateSchedule(suite)
+			Expect(isValid).To(BeFalse())
+
+			issueErr := reconciler.issueValidationError(suite, errorMsg, logger)
+			Expect(issueErr).To(BeNil())
+
+			foundSuite := &compv1alpha1.ComplianceSuite{}
+			err = reconciler.Client.Get(ctx, types.NamespacedName{Name: "error-suite", Namespace: namespace}, foundSuite)
+			Expect(err).To(BeNil())
+			Expect(foundSuite.Status.Phase).To(Equal(compv1alpha1.PhaseDone))
+			Expect(foundSuite.Status.Result).To(Equal(compv1alpha1.ResultError))
+			Expect(foundSuite.Status.ErrorMessage).To(HavePrefix("Suite was invalid:"))
+		})
+	})
+})
+
+var _ = Describe("ComplianceSuiteRerunner", func() {
+	// Corresponds to e2e TestScheduledSuite, TestScheduledSuiteUpdate
+	Context("GetRerunnerName", func() {
+		It("should append -rerunner to the suite name", func() {
+			name := GetRerunnerName("my-suite")
+			Expect(name).To(Equal("my-suite-rerunner"))
+		})
+
+		It("should truncate long suite names to 42 characters before appending", func() {
+			longName := "this-is-a-very-long-suite-name-that-exceeds-the-limit-for-cronjob-names"
+			name := GetRerunnerName(longName)
+			Expect(len(name)).To(BeNumerically("<=", 52))
+			Expect(name).To(HaveSuffix("-rerunner"))
+		})
+	})
+
+	Context("reRunnerNamespacedName", func() {
+		It("should use the correct namespace and name", func() {
+			nn := reRunnerNamespacedName("test-suite")
+			Expect(nn.Name).To(Equal("test-suite-rerunner"))
+		})
+	})
+
+	Context("generateRerunnerSpec", func() {
+		var (
+			reconciler *ReconcileComplianceSuite
+		)
+
+		BeforeEach(func() {
+			cscheme := scheme.Scheme
+			err := apis.AddToScheme(cscheme)
+			Expect(err).To(BeNil())
+			err = mcfgapi.Install(cscheme)
+			Expect(err).To(BeNil())
+
+			cl := fake.NewClientBuilder().
+				WithScheme(cscheme).
+				Build()
+
+			mockMetrics := metrics.NewMetrics(&metricsfakes.FakeImpl{})
+			err = mockMetrics.Register()
+			Expect(err).To(BeNil())
+
+			reconciler = &ReconcileComplianceSuite{
+				Reader:  cl,
+				Client:  cl,
+				Scheme:  cscheme,
+				Metrics: mockMetrics,
+			}
+		})
+
+		// Corresponds to e2e TestScheduledSuite
+		It("should generate a CronJob with the correct schedule", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "scheduled-suite",
+					Namespace: "test-ns",
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "*/2 * * * *",
+					},
+				},
+			}
+
+			cronJob := reconciler.generateRerunnerSpec(suite, "")
+			Expect(cronJob.Spec.Schedule).To(Equal("*/2 * * * *"))
+			Expect(cronJob.Name).To(Equal("scheduled-suite-rerunner"))
+		})
+
+		// Corresponds to e2e TestScheduledSuitePriorityClass
+		It("should set priority class on the rerunner pod template", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "priority-suite",
+					Namespace: "test-ns",
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "0 * * * *",
+					},
+				},
+			}
+
+			cronJob := reconciler.generateRerunnerSpec(suite, "high-priority")
+			Expect(cronJob.Spec.JobTemplate.Spec.Template.Spec.PriorityClassName).To(Equal("high-priority"))
+		})
+
+		// Corresponds to e2e TestScheduledSuiteInvalidPriorityClass
+		It("should set empty priority class when none is provided", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-priority-suite",
+					Namespace: "test-ns",
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "0 * * * *",
+					},
+				},
+			}
+
+			cronJob := reconciler.generateRerunnerSpec(suite, "")
+			Expect(cronJob.Spec.JobTemplate.Spec.Template.Spec.PriorityClassName).To(BeEmpty())
+		})
+
+		It("should include correct labels on the pod template", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "label-suite",
+					Namespace: "test-ns",
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "0 * * * *",
+					},
+				},
+			}
+
+			cronJob := reconciler.generateRerunnerSpec(suite, "")
+			labels := cronJob.Spec.JobTemplate.Spec.Template.Labels
+			Expect(labels).To(HaveKeyWithValue(compv1alpha1.SuiteLabel, "label-suite"))
+			Expect(labels).To(HaveKey(compv1alpha1.SuiteScriptLabel))
+			Expect(labels).To(HaveKeyWithValue("workload", "suitererunner"))
+		})
+	})
+
+	Context("updateCronJob", func() {
+		var (
+			reconciler *ReconcileComplianceSuite
+			logger     logr.Logger
+			ctx        = context.Background()
+		)
+
+		BeforeEach(func() {
+			cscheme := scheme.Scheme
+			err := apis.AddToScheme(cscheme)
+			Expect(err).To(BeNil())
+			err = mcfgapi.Install(cscheme)
+			Expect(err).To(BeNil())
+
+			cl := fake.NewClientBuilder().
+				WithScheme(cscheme).
+				Build()
+
+			mockMetrics := metrics.NewMetrics(&metricsfakes.FakeImpl{})
+			err = mockMetrics.Register()
+			Expect(err).To(BeNil())
+
+			reconciler = &ReconcileComplianceSuite{
+				Reader:  cl,
+				Client:  cl,
+				Scheme:  cscheme,
+				Metrics: mockMetrics,
+			}
+			zaplog, _ := zap.NewDevelopment()
+			logger = zapr.NewLogger(zaplog)
+		})
+
+		// Corresponds to e2e TestScheduledSuiteUpdate
+		It("should update the CronJob schedule when suite schedule changes", func() {
+			suite := &compv1alpha1.ComplianceSuite{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "update-schedule-suite",
+					Namespace: "test-ns",
+				},
+				Spec: compv1alpha1.ComplianceSuiteSpec{
+					ComplianceSuiteSettings: compv1alpha1.ComplianceSuiteSettings{
+						Schedule: "0 * * * *",
+					},
+				},
+			}
+
+			cronJob := reconciler.generateRerunnerSpec(suite, "")
+			err := reconciler.Client.Create(ctx, cronJob)
+			Expect(err).To(BeNil())
+
+			suite.Spec.Schedule = "*/2 * * * *"
+
+			err = reconciler.updateCronJob(suite, cronJob, logger)
+			Expect(err).To(BeNil())
+
+			updatedCronJob := &batchv1.CronJob{}
+			err = reconciler.Client.Get(ctx, types.NamespacedName{Name: cronJob.Name, Namespace: cronJob.Namespace}, updatedCronJob)
+			Expect(err).To(BeNil())
+			Expect(updatedCronJob.Spec.Schedule).To(Equal("*/2 * * * *"))
+		})
+	})
+})
 
 var _ = Describe("ComplianceSuiteController", func() {
 	var (
