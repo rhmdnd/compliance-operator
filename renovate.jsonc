@@ -17,14 +17,14 @@
       // Disable Go module updates on release branches — those are done
       // explicitly when needed. RPM updates are still proposed automatically.
       {
-        "matchManagers": ["gomod"],
+        "matchDatasources": ["go"],
         "matchBaseBranches": ["/^release-.*/"],
         "enabled": false
       },
       // Group all Go module digest, patch, and minor updates into a single
       // PR instead of one per dependency to reduce CI churn.
       {
-        "matchManagers": ["gomod"],
+        "matchDatasources": ["go"],
         "matchUpdateTypes": ["digest", "patch", "minor"],
         "groupName": "Go module updates",
         "groupSlug": "go-modules"
