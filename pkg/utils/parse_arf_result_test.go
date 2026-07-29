@@ -1032,7 +1032,7 @@ Server 3.fedora.pool.ntp.org`
 				Expect(result).To(Equal(expected))
 			})
 
-			It("Should encode special characters", func() {
+			It("Should preserve these special characters", func() {
 				input := "hello&world=test"
 				expected := "hello&world=test"
 				result := urlEncode(input)
