@@ -117,6 +117,51 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
+		{ // gauge error
+			when: func(m *Metrics) {
+				m.SetComplianceStateError("cstate-err")
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-err"})
+				require.Nil(t, err)
+				require.Equal(t, 3, getMetricValue(ctr))
+			},
+		},
+		{ // gauge inconsistent
+			when: func(m *Metrics) {
+				m.SetComplianceStateInconsistent("cstate-inc")
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-inc"})
+				require.Nil(t, err)
+				require.Equal(t, 2, getMetricValue(ctr))
+			},
+		},
+		{ // remediation status counter
+			when: func(m *Metrics) {
+				m.IncComplianceRemediationStatus("rem", v1alpha1.ComplianceRemediationStatus{ApplicationState: v1alpha1.RemediationApplied})
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metrics.metricComplianceRemediationStatus.GetMetricWith(prometheus.Labels{
+					metricLabelRemediationName:  "rem",
+					metricLabelRemediationState: string(v1alpha1.RemediationApplied),
+				})
+				require.Nil(t, err)
+				require.Equal(t, 1, getMetricValue(ctr))
+			},
+		},
+		{ // gauge series deleted
+			when: func(m *Metrics) {
+				m.SetComplianceStateInCompliance("cstate-del")
+				m.DeleteComplianceStateMetric("cstate-del")
+			},
+			then: func(m *Metrics) {
+				// re-created series starts back at the zero value
+				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-del"})
+				require.Nil(t, err)
+				require.Equal(t, 0, getMetricValue(ctr))
+			},
+		},
 	} {
 		mock := &metricsfakes.FakeImpl{}
 		sut := New()
