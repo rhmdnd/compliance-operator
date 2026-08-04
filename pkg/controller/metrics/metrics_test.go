@@ -104,7 +104,7 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 			then: func(m *Metrics) {
 				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate"})
 				require.Nil(t, err)
-				require.Equal(t, 0, getMetricValue(ctr))
+				require.Equal(t, METRIC_STATE_COMPLIANT, getMetricValue(ctr))
 			},
 		},
 		{ // gauge non-compliant
@@ -114,7 +114,7 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 			then: func(m *Metrics) {
 				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate"})
 				require.Nil(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, METRIC_STATE_NON_COMPLIANT, getMetricValue(ctr))
 			},
 		},
 		{ // gauge error
@@ -124,7 +124,7 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 			then: func(m *Metrics) {
 				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-err"})
 				require.Nil(t, err)
-				require.Equal(t, 3, getMetricValue(ctr))
+				require.Equal(t, METRIC_STATE_ERROR, getMetricValue(ctr))
 			},
 		},
 		{ // gauge inconsistent
@@ -134,7 +134,7 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 			then: func(m *Metrics) {
 				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-inc"})
 				require.Nil(t, err)
-				require.Equal(t, 2, getMetricValue(ctr))
+				require.Equal(t, METRIC_STATE_INCONSISTENT, getMetricValue(ctr))
 			},
 		},
 		{ // remediation status counter
@@ -150,16 +150,31 @@ func TestComplianceOperatorMetrics(t *testing.T) {
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
+		{ // scan status with error message increments error counter
+			when: func(m *Metrics) {
+				m.IncComplianceScanStatus("errorscan", v1alpha1.ComplianceScanStatus{
+					Result:       "ERROR",
+					Phase:        "DONE",
+					ErrorMessage: "something went wrong",
+				})
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metrics.metricComplianceScanError.GetMetricWith(prometheus.Labels{metricLabelScanName: "errorscan"})
+				require.Nil(t, err)
+				require.Equal(t, 1, getMetricValue(ctr))
+			},
+		},
 		{ // gauge series deleted
 			when: func(m *Metrics) {
-				m.SetComplianceStateInCompliance("cstate-del")
+				m.SetComplianceStateError("cstate-del")
 				m.DeleteComplianceStateMetric("cstate-del")
 			},
 			then: func(m *Metrics) {
-				// re-created series starts back at the zero value
-				ctr, err := m.metrics.metricComplianceStateGauge.GetMetricWith(prometheus.Labels{metricLabelSuiteName: "cstate-del"})
-				require.Nil(t, err)
-				require.Equal(t, 0, getMetricValue(ctr))
+				// GetMetricWith would silently re-create the deleted series at 0,
+				// so assert the vector is empty instead
+				c := make(chan prometheus.Metric, 1)
+				m.metrics.metricComplianceStateGauge.Collect(c)
+				require.Equal(t, 0, len(c))
 			},
 		},
 	} {
