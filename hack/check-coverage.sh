@@ -7,6 +7,17 @@ source "${SCRIPT_DIR}/lib/coverage.sh"
 TEST_OUTPUT="${1:?Usage: $0 <test-output-log> <baseline>}"
 BASELINE="${2:?Usage: $0 <test-output-log> <baseline>}"
 
+# The baseline is generated on x86_64 and coverage numbers can differ
+# slightly by architecture (e.g. cmd/manager measures 24.0% on s390x vs
+# 24.2% on x86_64), which fails the exact comparison in multi-arch image
+# builds. Enforce the gate only on the architecture the baseline is
+# generated on.
+arch="$(uname -m)"
+if [ "$arch" != "x86_64" ]; then
+    echo "INFO: Skipping coverage check on ${arch} — the baseline is x86_64-specific."
+    exit 0
+fi
+
 if [ ! -f "$BASELINE" ]; then
     echo "INFO: No coverage baseline found at $BASELINE — skipping check."
     exit 0
