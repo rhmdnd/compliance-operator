@@ -12,6 +12,7 @@ import (
 
 	"fmt"
 	"path"
+	"strings"
 
 	compliancev1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
 	"github.com/ComplianceAsCode/compliance-operator/pkg/controller/common"
@@ -192,7 +193,7 @@ func (r *ReconcileProfileBundle) Reconcile(ctx context.Context, request reconcil
 		return reconcile.Result{}, err
 	}
 
-	if workloadNeedsUpdate(effectiveImage, found) {
+	if workloadNeedsUpdate(instance, effectiveImage, found) {
 		pbCopy := instance.DeepCopy()
 		pbCopy.Status.DataStreamStatus = compliancev1alpha1.DataStreamPending
 		pbCopy.Status.ErrorMessage = ""
@@ -656,7 +657,7 @@ func profileparserCompleted(pod *corev1.Pod) bool {
 	return false
 }
 
-func workloadNeedsUpdate(image string, depl *appsv1.Deployment) bool {
+func workloadNeedsUpdate(pb *compliancev1alpha1.ProfileBundle, image string, depl *appsv1.Deployment) bool {
 	initContainers := depl.Spec.Template.Spec.InitContainers
 	if len(initContainers) != 2 {
 		// For some weird reason we don't have the amount of init containers we expect.
@@ -665,16 +666,23 @@ func workloadNeedsUpdate(image string, depl *appsv1.Deployment) bool {
 
 	isSameContentImage := false
 	isSaneProfileparserImage := false
+	isSameContentCommand := false
+	isSameParserCommand := false
+
+	expectedContentCmd := contentCopyCommand(pb)
+	expectedParserCmd := strings.Join(profileparserCommand(pb), "\x00")
 
 	for _, container := range initContainers {
 		if container.Name == "content-container" {
-			// we need an update if the image reference doesn't match.
 			isSameContentImage = container.Image == image
+			isSameContentCommand = len(container.Command) == 3 &&
+				container.Command[2] == expectedContentCmd
 		}
 		if container.Name == "profileparser" {
 			isSaneProfileparserImage = utils.GetComponentImage(utils.OPERATOR) == container.Image
+			isSameParserCommand = strings.Join(container.Command, "\x00") == expectedParserCmd
 		}
 	}
 
-	return !(isSameContentImage && isSaneProfileparserImage)
+	return !(isSameContentImage && isSaneProfileparserImage && isSameContentCommand && isSameParserCommand)
 }

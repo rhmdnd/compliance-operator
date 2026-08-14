@@ -4,9 +4,11 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	compliancev1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
+	"github.com/ComplianceAsCode/compliance-operator/pkg/utils"
 )
 
 // TestNewWorkloadForBundleUsesRecreateStrategy guards against the profileparser
@@ -34,5 +36,52 @@ func TestNewWorkloadForBundleUsesRecreateStrategy(t *testing.T) {
 	if got := depl.Spec.Strategy.Type; got != appsv1.RecreateDeploymentStrategyType {
 		t.Errorf("expected profileparser Deployment to use %q strategy, got %q",
 			appsv1.RecreateDeploymentStrategyType, got)
+	}
+}
+
+func TestWorkloadNeedsUpdateDetectsCELContentFileChange(t *testing.T) {
+	image := "example.com/content:v1"
+	operatorImage := utils.GetComponentImage(utils.OPERATOR)
+
+	pbNoCEL := &compliancev1alpha1.ProfileBundle{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ocp4",
+			Namespace: "openshift-compliance",
+		},
+		Spec: compliancev1alpha1.ProfileBundleSpec{
+			ContentImage: image,
+			ContentFile:  "ssg-ocp4-ds.xml",
+		},
+	}
+	pbWithCEL := pbNoCEL.DeepCopy()
+	pbWithCEL.Spec.CELContentFile = "ocp4-cel-content.yaml"
+
+	deplFromNoCEL := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{
+							Name:    "content-container",
+							Image:   image,
+							Command: []string{"sh", "-c", contentCopyCommand(pbNoCEL)},
+						},
+						{
+							Name:    "profileparser",
+							Image:   operatorImage,
+							Command: profileparserCommand(pbNoCEL),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if workloadNeedsUpdate(pbNoCEL, image, deplFromNoCEL) {
+		t.Error("workloadNeedsUpdate should return false when spec matches deployment")
+	}
+
+	if !workloadNeedsUpdate(pbWithCEL, image, deplFromNoCEL) {
+		t.Error("workloadNeedsUpdate should return true when celContentFile was added but deployment still has old commands")
 	}
 }
