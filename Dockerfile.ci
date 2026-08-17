@@ -10,7 +10,7 @@ COPY . .
 RUN make manager
 
 # Step two: containerize compliance-operator
-FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+FROM registry.redhat.io/ubi9/ubi-minimal-pqc:latest
 
 ENV OPERATOR=/usr/local/bin/compliance-operator
 
