@@ -74,13 +74,13 @@ DEFAULT_OPENSCAP_TAG=latest
 OPENSCAP_TAG?=$(DEFAULT_OPENSCAP_TAG)
 OPENSCAP_DOCKER_FILE=./images/openscap/Containerfile
 DEFAULT_OPENSCAP_IMAGE=$(DEFAULT_KONFLUX_REPO)/$(APP_NAME)-openscap-dev:$(DEFAULT_KONFLUX_TAG)
-OPENSCAP_IMAGE?=$(DEFAULT_REPO)/$(OPENSCAP_NAME):$(OPENSCAP_TAG)
+OPENSCAP_IMAGE?=$(DEFAULT_OPENSCAP_IMAGE)
 
 # Image path to use. Set this if you want to use a specific path for building
 # or your e2e tests. This is overwritten if we build the image and push it to
 # the cluster or if we're on CI.
 OPERATOR_TAG_BASE=$(IMAGE_REPO)/$(APP_NAME)
-OPERATOR_IMAGE?=$(OPERATOR_TAG_BASE):$(TAG)
+OPERATOR_IMAGE?=$(DEFAULT_OPERATOR_IMAGE)
 
 # Build variables
 # ===============
@@ -203,7 +203,7 @@ ifeq ($(USE_IMAGE_DIGESTS), true)
 endif
 
 # Image URL to use all building/pushing image targets
-IMG ?= $(IMAGE_TAG_BASE):$(TAG)
+IMG ?= $(DEFAULT_OPERATOR_IMAGE)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
