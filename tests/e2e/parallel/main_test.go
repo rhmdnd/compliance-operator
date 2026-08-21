@@ -5882,7 +5882,7 @@ func TestTimeoutDisabledWithZeroValue(t *testing.T) {
 		},
 		Profiles: []compv1alpha1.NamedObjectReference{
 			{
-				Name:     "ocp4-cis",
+				Name:     "ocp4-moderate",
 				Kind:     "Profile",
 				APIGroup: "compliance.openshift.io/v1alpha1",
 			},
