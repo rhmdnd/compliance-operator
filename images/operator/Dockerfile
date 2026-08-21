@@ -19,7 +19,7 @@ RUN expected=$(awk '/^go / { print $2 }' go.mod) && \
 
 RUN make manager
 
-FROM registry.redhat.io/ubi9/ubi-minimal:latest
+FROM registry.redhat.io/ubi9/ubi-minimal-pqc:latest
 
 RUN microdnf install -y --setopt=tsflags=nodocs tar
 RUN microdnf clean all && rm -rf /var/cache/*
