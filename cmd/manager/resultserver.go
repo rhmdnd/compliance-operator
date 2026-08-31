@@ -31,7 +31,6 @@ import (
 	"syscall"
 	"time"
 
-	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
@@ -249,15 +248,22 @@ func server(c *resultServerConfig) {
 	cmdLog.Info("Server exited gracefully")
 }
 
-// getServerTLSConfig returns a TLS config that honors the cluster-wide TLS
-// security profile when strict adherence is required, falling back to secure
-// defaults otherwise.
-func getServerTLSConfig() *tls.Config {
+// defaultServerTLSConfig returns the secure-default TLS config used when the
+// cluster-wide TLS security profile is unavailable or not being honored. It is
+// pure (no I/O) so it can be unit-tested hermetically.
+func defaultServerTLSConfig() *tls.Config {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"http/1.1"},
 	}
-	tlsConfig = libgocrypto.SecureTLSConfig(tlsConfig)
+	return libgocrypto.SecureTLSConfig(tlsConfig)
+}
+
+// getServerTLSConfig returns a TLS config that honors the cluster-wide TLS
+// security profile when strict adherence is required, falling back to secure
+// defaults otherwise.
+func getServerTLSConfig() *tls.Config {
+	tlsConfig := defaultServerTLSConfig()
 
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
@@ -270,23 +276,10 @@ func getServerTLSConfig() *tls.Config {
 		return tlsConfig
 	}
 
-	tlsLookupCtx, tlsLookupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer tlsLookupCancel()
-
-	adherence, err := tlspkg.FetchAPIServerTLSAdherencePolicy(tlsLookupCtx, cl)
-	if err != nil {
-		cmdLog.Info("Could not fetch TLS adherence policy, using defaults", "error", err)
-		return tlsConfig
-	}
-	if !libgocrypto.ShouldHonorClusterTLSProfile(adherence) {
-		return tlsConfig
-	}
-
-	profile, err := tlspkg.FetchAPIServerTLSProfile(tlsLookupCtx, cl)
-	if err != nil {
-		cmdLog.Info("Could not fetch TLS profile, using defaults", "error", err)
-		return tlsConfig
-	}
+	// Shares the pre-start lookup logic with the operator: bounded timeout,
+	// secure-default fallback, and conditional application of the profile
+	// (applyClusterTLSProfile is a no-op unless strict adherence is required).
+	profile, adherence := fetchClusterTLSState(context.Background(), cl)
 	if unsupported := applyClusterTLSProfile(tlsConfig, profile, adherence); len(unsupported) > 0 {
 		cmdLog.Info("TLS profile contains ciphers unsupported by Go", "unsupported", unsupported)
 	}

@@ -10,7 +10,6 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
@@ -278,28 +277,11 @@ func RunOperator(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Bound the pre-start TLS lookups so an unresponsive API server cannot
-	// block operator startup indefinitely; on timeout we fall back to secure
-	// defaults below.
-	tlsLookupCtx, tlsLookupCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer tlsLookupCancel()
-
 	// Fetch the initial TLS profile and adherence policy from the APIServer
 	// resource. These are used to configure all TLS endpoints at startup and
-	// to detect changes later via the SecurityProfileWatcher.
-	initialTLSProfile, err := tlspkg.FetchAPIServerTLSProfile(tlsLookupCtx, preStartClient)
-	if err != nil {
-		setupLog.Info("Could not fetch APIServer TLS profile, using defaults", "error", err)
-		initialTLSProfile = configv1.TLSProfileSpec{
-			Ciphers:       tlspkg.DefaultTLSCiphers,
-			MinTLSVersion: tlspkg.DefaultMinTLSVersion,
-		}
-	}
-	initialTLSAdherencePolicy, err := tlspkg.FetchAPIServerTLSAdherencePolicy(tlsLookupCtx, preStartClient)
-	if err != nil {
-		setupLog.Info("Could not fetch APIServer TLS adherence policy, using defaults", "error", err)
-		initialTLSAdherencePolicy = configv1.TLSAdherencePolicyNoOpinion
-	}
+	// to detect changes later via the SecurityProfileWatcher. The lookups are
+	// bounded by a timeout and fall back to secure defaults on error.
+	initialTLSProfile, initialTLSAdherencePolicy := fetchClusterTLSState(ctx, preStartClient)
 
 	// Build webhook TLS options from the cluster profile.
 	webhookTLSOpts := []func(config *tls.Config){
