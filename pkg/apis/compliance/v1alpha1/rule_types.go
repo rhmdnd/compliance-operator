@@ -37,7 +37,7 @@ type RulePayload struct {
 	Description string `json:"description,omitempty"`
 	// The rationale of the Rule
 	Rationale string `json:"rationale,omitempty"`
-	// A discretionary warning about the of the Rule
+	// A discretionary warning about the Rule
 	Warning string `json:"warning,omitempty"`
 	// The severity level
 	Severity string `json:"severity,omitempty"`
