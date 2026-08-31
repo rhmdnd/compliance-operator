@@ -1,12 +1,48 @@
 package manager
 
 import (
+	"context"
 	"crypto/tls"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+var _ = Describe("fetchClusterTLSState", func() {
+	Context("when the APIServer resource specifies a profile and adherence policy", func() {
+		It("returns the configured profile and adherence policy", func() {
+			apiServer := &configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: tlspkg.APIServerName},
+				Spec: configv1.APIServerSpec{
+					TLSSecurityProfile: &configv1.TLSSecurityProfile{
+						Type: configv1.TLSProfileModernType,
+					},
+					TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+				},
+			}
+			cl := fake.NewClientBuilder().WithScheme(operatorScheme).WithObjects(apiServer).Build()
+
+			profile, adherence := fetchClusterTLSState(context.Background(), cl)
+			Expect(adherence).To(Equal(configv1.TLSAdherencePolicyStrictAllComponents))
+			Expect(profile.MinTLSVersion).To(Equal(configv1.TLSProfiles[configv1.TLSProfileModernType].MinTLSVersion))
+		})
+	})
+
+	Context("when the APIServer resource is missing", func() {
+		It("falls back to secure defaults and a no-opinion adherence policy", func() {
+			cl := fake.NewClientBuilder().WithScheme(operatorScheme).Build()
+
+			profile, adherence := fetchClusterTLSState(context.Background(), cl)
+			Expect(adherence).To(Equal(configv1.TLSAdherencePolicyNoOpinion))
+			Expect(profile.MinTLSVersion).To(Equal(tlspkg.DefaultMinTLSVersion))
+			Expect(profile.Ciphers).To(Equal(tlspkg.DefaultTLSCiphers))
+		})
+	})
+})
 
 var _ = Describe("applyClusterTLSProfile", func() {
 	var baseConfig *tls.Config

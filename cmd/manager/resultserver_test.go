@@ -37,9 +37,9 @@ func _readDirNames(path string) []string {
 	return list
 }
 
-var _ = Describe("getServerTLSConfig", func() {
-	It("returns secure defaults when not running in a cluster", func() {
-		cfg := getServerTLSConfig()
+var _ = Describe("defaultServerTLSConfig", func() {
+	It("returns secure defaults", func() {
+		cfg := defaultServerTLSConfig()
 		Expect(cfg).NotTo(BeNil())
 		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12)))
 		Expect(cfg.NextProtos).To(ContainElement("http/1.1"))
