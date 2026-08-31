@@ -67,13 +67,13 @@ arches:
     name: dbus
     evr: 1:1.12.20-8.el9
     sourcerpm: dbus-1.12.20-8.el9.src.rpm
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/os/Packages/d/dbus-broker-28-7.el9.aarch64.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/os/Packages/d/dbus-broker-28-9.el9_8.aarch64.rpm
     repoid: rhel-9-for-aarch64-baseos-rpms
-    size: 173303
-    checksum: sha256:342af53fbf4254e34b5f19a6be6f22c67551c26dd0c49016edc93e806621b75d
+    size: 174219
+    checksum: sha256:ffebc8de0cd9ed86122973be161b617aa46ce1e020f61f9e8e5a42246d4bd495
     name: dbus-broker
-    evr: 28-7.el9
-    sourcerpm: dbus-broker-28-7.el9.src.rpm
+    evr: 28-9.el9_8
+    sourcerpm: dbus-broker-28-9.el9_8.src.rpm
   - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/os/Packages/d/dbus-common-1.12.20-8.el9.noarch.rpm
     repoid: rhel-9-for-aarch64-baseos-rpms
     size: 18551
@@ -244,12 +244,12 @@ arches:
     checksum: sha256:3fe74a2b4fb4485c93e974010d9376e30a63dfcc628bfd6c01837c27b4953912
     name: dbus
     evr: 1:1.12.20-8.el9
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/source/SRPMS/Packages/d/dbus-broker-28-7.el9.src.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/source/SRPMS/Packages/d/dbus-broker-28-9.el9_8.src.rpm
     repoid: rhel-9-for-aarch64-baseos-source-rpms
-    size: 254475
-    checksum: sha256:aced3097fbb8a424ca1816b8cb3e79960a9ccf7ba139538282886e692c317b29
+    size: 258866
+    checksum: sha256:9ccbb440edb6826689fd5e0d650de4f08550c3c0f3b2732c54c1e99b0d361824
     name: dbus-broker
-    evr: 28-7.el9
+    evr: 28-9.el9_8
   - url: https://cdn.redhat.com/content/dist/rhel9/9/aarch64/baseos/source/SRPMS/Packages/e/expat-2.5.0-6.el9_8.1.src.rpm
     repoid: rhel-9-for-aarch64-baseos-source-rpms
     size: 8390481
@@ -394,13 +394,13 @@ arches:
     name: dbus
     evr: 1:1.12.20-8.el9
     sourcerpm: dbus-1.12.20-8.el9.src.rpm
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/os/Packages/d/dbus-broker-28-7.el9.ppc64le.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/os/Packages/d/dbus-broker-28-9.el9_8.ppc64le.rpm
     repoid: rhel-9-for-ppc64le-baseos-rpms
-    size: 192179
-    checksum: sha256:dfe710f3a07cd31fd144f439deaed0ef78b5ea65caecb754bc69959908191af7
+    size: 192671
+    checksum: sha256:62f23c1c9a1354c21b0b2d4c4013874b8c60f11e134f8cdf6f0314adb4bf3bbe
     name: dbus-broker
-    evr: 28-7.el9
-    sourcerpm: dbus-broker-28-7.el9.src.rpm
+    evr: 28-9.el9_8
+    sourcerpm: dbus-broker-28-9.el9_8.src.rpm
   - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/os/Packages/d/dbus-common-1.12.20-8.el9.noarch.rpm
     repoid: rhel-9-for-ppc64le-baseos-rpms
     size: 18551
@@ -578,12 +578,12 @@ arches:
     checksum: sha256:3fe74a2b4fb4485c93e974010d9376e30a63dfcc628bfd6c01837c27b4953912
     name: dbus
     evr: 1:1.12.20-8.el9
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/source/SRPMS/Packages/d/dbus-broker-28-7.el9.src.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/source/SRPMS/Packages/d/dbus-broker-28-9.el9_8.src.rpm
     repoid: rhel-9-for-ppc64le-baseos-source-rpms
-    size: 254475
-    checksum: sha256:aced3097fbb8a424ca1816b8cb3e79960a9ccf7ba139538282886e692c317b29
+    size: 258866
+    checksum: sha256:9ccbb440edb6826689fd5e0d650de4f08550c3c0f3b2732c54c1e99b0d361824
     name: dbus-broker
-    evr: 28-7.el9
+    evr: 28-9.el9_8
   - url: https://cdn.redhat.com/content/dist/rhel9/9/ppc64le/baseos/source/SRPMS/Packages/e/expat-2.5.0-6.el9_8.1.src.rpm
     repoid: rhel-9-for-ppc64le-baseos-source-rpms
     size: 8390481
@@ -734,13 +734,13 @@ arches:
     name: dbus
     evr: 1:1.12.20-8.el9
     sourcerpm: dbus-1.12.20-8.el9.src.rpm
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/os/Packages/d/dbus-broker-28-7.el9.s390x.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/os/Packages/d/dbus-broker-28-9.el9_8.s390x.rpm
     repoid: rhel-9-for-s390x-baseos-rpms
-    size: 169208
-    checksum: sha256:68a4e64a8591df9ae3086014572da3d3b5eb2316a0c2c5e78aaed576c359fd81
+    size: 170185
+    checksum: sha256:d366b1927ddd1322a8b2ad5e9c54a9f7c0ce69be227a20c86a4a660b404991c0
     name: dbus-broker
-    evr: 28-7.el9
-    sourcerpm: dbus-broker-28-7.el9.src.rpm
+    evr: 28-9.el9_8
+    sourcerpm: dbus-broker-28-9.el9_8.src.rpm
   - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/os/Packages/d/dbus-common-1.12.20-8.el9.noarch.rpm
     repoid: rhel-9-for-s390x-baseos-rpms
     size: 18551
@@ -911,12 +911,12 @@ arches:
     checksum: sha256:3fe74a2b4fb4485c93e974010d9376e30a63dfcc628bfd6c01837c27b4953912
     name: dbus
     evr: 1:1.12.20-8.el9
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/source/SRPMS/Packages/d/dbus-broker-28-7.el9.src.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/source/SRPMS/Packages/d/dbus-broker-28-9.el9_8.src.rpm
     repoid: rhel-9-for-s390x-baseos-source-rpms
-    size: 254475
-    checksum: sha256:aced3097fbb8a424ca1816b8cb3e79960a9ccf7ba139538282886e692c317b29
+    size: 258866
+    checksum: sha256:9ccbb440edb6826689fd5e0d650de4f08550c3c0f3b2732c54c1e99b0d361824
     name: dbus-broker
-    evr: 28-7.el9
+    evr: 28-9.el9_8
   - url: https://cdn.redhat.com/content/dist/rhel9/9/s390x/baseos/source/SRPMS/Packages/e/expat-2.5.0-6.el9_8.1.src.rpm
     repoid: rhel-9-for-s390x-baseos-source-rpms
     size: 8390481
@@ -1061,13 +1061,13 @@ arches:
     name: dbus
     evr: 1:1.12.20-8.el9
     sourcerpm: dbus-1.12.20-8.el9.src.rpm
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/os/Packages/d/dbus-broker-28-7.el9.x86_64.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/os/Packages/d/dbus-broker-28-9.el9_8.x86_64.rpm
     repoid: rhel-9-for-x86_64-baseos-rpms
-    size: 179634
-    checksum: sha256:de9869c08df7f6952787d0335b9bf1a09b328bea920556a59af07c8e085dd3cb
+    size: 180434
+    checksum: sha256:2c3b853f8548394af581f487d3682e3e6a4fd27bb451088ce278c7f00af454db
     name: dbus-broker
-    evr: 28-7.el9
-    sourcerpm: dbus-broker-28-7.el9.src.rpm
+    evr: 28-9.el9_8
+    sourcerpm: dbus-broker-28-9.el9_8.src.rpm
   - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/os/Packages/d/dbus-common-1.12.20-8.el9.noarch.rpm
     repoid: rhel-9-for-x86_64-baseos-rpms
     size: 18551
@@ -1238,12 +1238,12 @@ arches:
     checksum: sha256:3fe74a2b4fb4485c93e974010d9376e30a63dfcc628bfd6c01837c27b4953912
     name: dbus
     evr: 1:1.12.20-8.el9
-  - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/source/SRPMS/Packages/d/dbus-broker-28-7.el9.src.rpm
+  - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/source/SRPMS/Packages/d/dbus-broker-28-9.el9_8.src.rpm
     repoid: rhel-9-for-x86_64-baseos-source-rpms
-    size: 254475
-    checksum: sha256:aced3097fbb8a424ca1816b8cb3e79960a9ccf7ba139538282886e692c317b29
+    size: 258866
+    checksum: sha256:9ccbb440edb6826689fd5e0d650de4f08550c3c0f3b2732c54c1e99b0d361824
     name: dbus-broker
-    evr: 28-7.el9
+    evr: 28-9.el9_8
   - url: https://cdn.redhat.com/content/dist/rhel9/9/x86_64/baseos/source/SRPMS/Packages/e/expat-2.5.0-6.el9_8.1.src.rpm
     repoid: rhel-9-for-x86_64-baseos-source-rpms
     size: 8390481
