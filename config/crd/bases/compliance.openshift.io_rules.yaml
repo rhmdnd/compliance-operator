@@ -151,7 +151,7 @@ spec:
             description: The title of the Rule
             type: string
           warning:
-            description: A discretionary warning about the of the Rule
+            description: A discretionary warning about the Rule
             type: string
         required:
         - id
