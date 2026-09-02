@@ -31,11 +31,12 @@ import (
 	"syscall"
 	"time"
 
+	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 
 	utils "github.com/ComplianceAsCode/compliance-operator/pkg/utils"
 )
@@ -179,12 +180,7 @@ func server(c *resultServerConfig) {
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
 
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		NextProtos: []string{"http/1.1"},
-	}
-	// Configures TLS 1.2
-	tlsConfig = libgocrypto.SecureTLSConfig(tlsConfig)
+	tlsConfig := getServerTLSConfig()
 	tlsConfig.ClientCAs = caCertPool
 	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 	tlsConfig.BuildNameToCertificate()
@@ -250,4 +246,42 @@ func server(c *resultServerConfig) {
 	}
 
 	cmdLog.Info("Server exited gracefully")
+}
+
+// defaultServerTLSConfig returns the secure-default TLS config used when the
+// cluster-wide TLS security profile is unavailable or not being honored. It is
+// pure (no I/O) so it can be unit-tested hermetically.
+func defaultServerTLSConfig() *tls.Config {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		NextProtos: []string{"http/1.1"},
+	}
+	return libgocrypto.SecureTLSConfig(tlsConfig)
+}
+
+// getServerTLSConfig returns a TLS config that honors the cluster-wide TLS
+// security profile when strict adherence is required, falling back to secure
+// defaults otherwise.
+func getServerTLSConfig() *tls.Config {
+	tlsConfig := defaultServerTLSConfig()
+
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		cmdLog.Info("Not running in cluster, skipping cluster TLS profile lookup")
+		return tlsConfig
+	}
+	cl, err := client.New(cfg, client.Options{Scheme: operatorScheme})
+	if err != nil {
+		cmdLog.Info("Could not create client for TLS profile lookup")
+		return tlsConfig
+	}
+
+	// Shares the pre-start lookup logic with the operator: bounded timeout,
+	// secure-default fallback, and conditional application of the profile
+	// (applyClusterTLSProfile is a no-op unless strict adherence is required).
+	profile, adherence := fetchClusterTLSState(context.Background(), cl)
+	if unsupported := applyClusterTLSProfile(tlsConfig, profile, adherence); len(unsupported) > 0 {
+		cmdLog.Info("TLS profile contains ciphers unsupported by Go", "unsupported", unsupported)
+	}
+	return tlsConfig
 }
