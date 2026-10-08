@@ -3432,6 +3432,8 @@ func TestStrictNodeScanConfiguration(t *testing.T) {
 
 	suite := &compv1alpha1.ComplianceSuite{}
 	suiteKey := types.NamespacedName{Name: bindingName, Namespace: f.OperatorNamespace}
+	// Wait for the suite controller to set a phase: a suite it hasn't
+	// reconciled yet has none.
 	if err := wait.PollImmediate(framework.RetryInterval, framework.Timeout, func() (bool, error) {
 		err := f.Client.Get(context.TODO(), suiteKey, suite)
 		if apierrors.IsNotFound(err) {
@@ -3440,9 +3442,9 @@ func TestStrictNodeScanConfiguration(t *testing.T) {
 		if err != nil {
 			return false, err
 		}
-		return true, nil
+		return suite.Status.Phase != "", nil
 	}); err != nil {
-		t.Fatalf("timed out waiting for ComplianceSuite %s to be created: %v", bindingName, err)
+		t.Fatalf("timed out waiting for ComplianceSuite %s to be created and get a phase: %v", bindingName, err)
 	}
 
 	// With strictNodeScan: true and an unschedulable node, the suite should remain PENDING for 30 seconds
