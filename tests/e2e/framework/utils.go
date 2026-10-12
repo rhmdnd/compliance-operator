@@ -1248,7 +1248,7 @@ func (f *Framework) AssertMetricsEndpointMinTLSVersion(expectedMinTLSVersion str
 			"run", "--rm", "-i", "--restart=Never",
 			"--image="+FedoraTestImage,
 			"-n", f.OperatorNamespace, "--overrides="+overrides,
-			"tls-version-test",
+			fmt.Sprintf("tls-version-test-%d", time.Now().UnixNano()),
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1326,7 +1326,7 @@ func (f *Framework) AssertResultServerMinTLSVersion(scanName, expectedMinTLSVers
 			"run", "--rm", "-i", "--restart=Never",
 			"--image="+FedoraTestImage,
 			"-n", f.OperatorNamespace, "--overrides="+overrides,
-			"rs-tls-version-test",
+			fmt.Sprintf("rs-tls-version-test-%d", time.Now().UnixNano()),
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1384,7 +1384,7 @@ func (f *Framework) AssertMetricsEndpointRejectsTLSVersion(rejectedTLSVersion st
 			"run", "--rm", "-i", "--restart=Never",
 			"--image="+FedoraTestImage,
 			"-n", f.OperatorNamespace, "--overrides="+overrides,
-			"tls-reject-test",
+			fmt.Sprintf("tls-reject-test-%d", time.Now().UnixNano()),
 		)
 		out, err := cmd.CombinedOutput()
 		output := string(out)
@@ -1451,7 +1451,7 @@ func (f *Framework) AssertResultServerRejectsTLSVersion(scanName, rejectedTLSVer
 			"run", "--rm", "-i", "--restart=Never",
 			"--image="+FedoraTestImage,
 			"-n", f.OperatorNamespace, "--overrides="+overrides,
-			"rs-tls-reject-test",
+			fmt.Sprintf("rs-tls-reject-test-%d", time.Now().UnixNano()),
 		)
 		out, err := cmd.CombinedOutput()
 		output := string(out)
