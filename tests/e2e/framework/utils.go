@@ -1212,6 +1212,20 @@ func parseTLSVersionFromCurlOutput(output string) string {
 	return re.FindString(output)
 }
 
+// tlsHandshakeMarker is the line curl -v prints once a TLS session has been
+// established. Its absence means no handshake completed.
+const tlsHandshakeMarker = "SSL connection using"
+
+// curlConnected reports whether curl -v got a TCP connection to the server.
+// The exit status alone cannot tell a refused handshake from a pod that never
+// ran: oc run reports a non-zero status for an admission rejection, an image
+// pull failure or a name conflict just as it does for curl exiting non-zero.
+// Requiring the connection trace confirms the container ran and reached the
+// server, so a missing handshake is the server's doing and not the harness'.
+func curlConnected(output string) bool {
+	return strings.Contains(output, "Connected to ")
+}
+
 // tlsVersionAtLeast returns true if actual >= minimum using the TLS version
 // ordering. Both arguments should be strings like "TLSv1.2".
 func tlsVersionAtLeast(actual, minimum string) bool {
@@ -1389,8 +1403,13 @@ func (f *Framework) AssertMetricsEndpointRejectsTLSVersion(rejectedTLSVersion st
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 
-		if err == nil && !strings.Contains(output, "SSL") && !strings.Contains(output, "alert") {
-			lastErr = fmt.Errorf("expected connection with --tls-max %s to be rejected, but it succeeded: %s", rejectedTLSVersion, output)
+		switch {
+		case !curlConnected(output):
+			lastErr = fmt.Errorf("curl never reached the metrics endpoint, so nothing was proven about its TLS floor: %v, output: %s", err, output)
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		case strings.Contains(output, tlsHandshakeMarker):
+			lastErr = fmt.Errorf("expected connection with --tls-max %s to be rejected, but the handshake succeeded: %s", rejectedTLSVersion, output)
 			log.Printf("%v... retrying\n", lastErr)
 			return false, nil
 		}
@@ -1456,8 +1475,13 @@ func (f *Framework) AssertResultServerRejectsTLSVersion(scanName, rejectedTLSVer
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 
-		if err == nil && !strings.Contains(output, "SSL") && !strings.Contains(output, "alert") {
-			lastErr = fmt.Errorf("expected result server connection with --tls-max %s to be rejected, but it succeeded: %s", rejectedTLSVersion, output)
+		switch {
+		case !curlConnected(output):
+			lastErr = fmt.Errorf("curl never reached the result server, so nothing was proven about its TLS floor: %v, output: %s", err, output)
+			log.Printf("%v... retrying\n", lastErr)
+			return false, nil
+		case strings.Contains(output, tlsHandshakeMarker):
+			lastErr = fmt.Errorf("expected result server connection with --tls-max %s to be rejected, but the handshake succeeded: %s", rejectedTLSVersion, output)
 			log.Printf("%v... retrying\n", lastErr)
 			return false, nil
 		}
