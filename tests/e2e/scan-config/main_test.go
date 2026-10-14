@@ -1137,7 +1137,61 @@ func TestTolerations(t *testing.T) {
 	}
 	defer removeTaintClosure()
 
-	suiteName := framework.GetObjNameFromTest(t)
+	// Test Phase 1: Automatic toleration injection (without explicit tolerations)
+	// This verifies that the Compliance Operator automatically adds tolerations
+	// to scan pods, allowing them to run on tainted nodes without user configuration.
+	suiteNameAuto := framework.GetObjNameFromTest(t) + "-auto"
+	scanNameAuto := suiteNameAuto
+	suiteAuto := &compv1alpha1.ComplianceSuite{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      suiteNameAuto,
+			Namespace: f.OperatorNamespace,
+		},
+		Spec: compv1alpha1.ComplianceSuiteSpec{
+			Scans: []compv1alpha1.ComplianceScanSpecWrapper{
+				{
+					ComplianceScanSpec: compv1alpha1.ComplianceScanSpec{
+						ContentImage: contentImagePath,
+						Profile:      "xccdf_org.ssgproject.content_profile_moderate",
+						Rule:         "xccdf_org.ssgproject.content_rule_no_netrc_files",
+						Content:      framework.RhcosContentFile,
+						NodeSelector: map[string]string{
+							// Schedule scan in this specific host
+							corev1.LabelHostname: taintedNode.Labels[corev1.LabelHostname],
+						},
+						ComplianceScanSettings: compv1alpha1.ComplianceScanSettings{
+							Debug: true,
+							//No ScanTolerations specified - testing automatic injection
+						},
+					},
+					Name: scanNameAuto,
+				},
+			},
+		},
+	}
+	if err := f.Client.Create(context.TODO(), suiteAuto, nil); err != nil {
+		t.Fatalf("failed to create suite %s: %s", suiteNameAuto, err)
+	}
+	defer f.Client.Delete(context.TODO(), suiteAuto)
+
+	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, suiteNameAuto, compv1alpha1.PhaseDone, compv1alpha1.ResultCompliant)
+	if err != nil {
+		t.Fatalf("automatic toleration test failed: %s", err)
+	}
+
+	// Verify that all scanner pods have the expected tolerations (Phase 1 - automatic)
+	podsAuto, err := f.GetPodsForScan(scanNameAuto)
+	if err != nil {
+		t.Fatalf("failed to get pods: %s", err)
+	}
+	framework.AssertAllScannerPodsHaveToleration(t, podsAuto, func(tol corev1.Toleration) bool {
+		return (tol.Key == "" && tol.Operator == corev1.TolerationOpExists) ||
+			(tol.Key == taintKey && tol.Effect == corev1.TaintEffectNoSchedule)
+	}, fmt.Sprintf("expected wildcard or specific toleration for taint key %s", taintKey))
+
+	// Test Phase 2: Explicit toleration configuration
+	// This verifies that user-provided tolerations are respected and work correctly.
+	suiteName := framework.GetObjNameFromTest(t) + "-explicit"
 	scanName := suiteName
 	suite := &compv1alpha1.ComplianceSuite{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1179,8 +1233,17 @@ func TestTolerations(t *testing.T) {
 
 	err = f.WaitForSuiteScansStatus(f.OperatorNamespace, suiteName, compv1alpha1.PhaseDone, compv1alpha1.ResultCompliant)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("explicit toleration test failed: %s", err)
 	}
+
+	// Verify that all scanner pods have the expected tolerations (Phase 2 - explicit)
+	podsExplicit, err := f.GetPodsForScan(scanName)
+	if err != nil {
+		t.Fatalf("failed to get pods: %s", err)
+	}
+	framework.AssertAllScannerPodsHaveToleration(t, podsExplicit, func(tol corev1.Toleration) bool {
+		return tol.Key == taintKey && tol.Effect == corev1.TaintEffectNoSchedule
+	}, fmt.Sprintf("expected toleration for taint key %s (explicit configuration)", taintKey))
 }
 
 func TestSuspendScanSetting(t *testing.T) {
@@ -1692,6 +1755,8 @@ func TestStrictNodeScanConfiguration(t *testing.T) {
 
 	suite := &compv1alpha1.ComplianceSuite{}
 	suiteKey := types.NamespacedName{Name: bindingName, Namespace: f.OperatorNamespace}
+	// Wait for the suite controller to set a phase: a suite it hasn't
+	// reconciled yet has none.
 	if err := wait.PollImmediate(framework.RetryInterval, framework.Timeout, func() (bool, error) {
 		err := f.Client.Get(context.TODO(), suiteKey, suite)
 		if apierrors.IsNotFound(err) {
@@ -1700,9 +1765,9 @@ func TestStrictNodeScanConfiguration(t *testing.T) {
 		if err != nil {
 			return false, err
 		}
-		return true, nil
+		return suite.Status.Phase != "", nil
 	}); err != nil {
-		t.Fatalf("timed out waiting for ComplianceSuite %s to be created: %v", bindingName, err)
+		t.Fatalf("timed out waiting for ComplianceSuite %s to be created and get a phase: %v", bindingName, err)
 	}
 
 	// With strictNodeScan: true and an unschedulable node, the suite should remain PENDING for 30 seconds
@@ -1904,7 +1969,6 @@ func TestTimeoutDisabledWithZeroValue(t *testing.T) {
 	}
 }
 
-
 func TestScanSettingBinding(t *testing.T) {
 	t.Parallel()
 	f := framework.Global
@@ -2088,4 +2152,3 @@ func TestScanSettingBindingUsesDefaultScanSetting(t *testing.T) {
 		t.Fatal("Expected the settings reference to use the default ScanSetting")
 	}
 }
-

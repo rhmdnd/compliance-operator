@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"testing"
-	"time"
 
 	compv1alpha1 "github.com/ComplianceAsCode/compliance-operator/pkg/apis/compliance/v1alpha1"
 	"github.com/ComplianceAsCode/compliance-operator/tests/e2e/framework"
@@ -107,7 +106,7 @@ func TestProfileBundleDefaultIsKept(t *testing.T) {
 	ocpPbCopy.Spec.ContentImage = otherImage
 	ocpPbCopy.Spec.ContentFile = framework.RhcosContentFile
 	if updateErr := f.Client.Update(bctx, ocpPbCopy); updateErr != nil {
-		t.Fatalf("failed to update default ocp4 profile: %s", err)
+		t.Fatalf("failed to update default ocp4 profile: %s", updateErr)
 	}
 
 	if err := f.WaitForProfileBundleStatus("ocp4", compv1alpha1.DataStreamPending); err != nil {
@@ -127,12 +126,41 @@ func TestProfileBundleDefaultIsKept(t *testing.T) {
 	withLabel := client.MatchingLabels{
 		"name": "compliance-operator",
 	}
+
+	// Capture UIDs of existing pods before deletion so we can track
+	// when specifically these pods are gone. The Deployment will
+	// immediately create replacement pods, so we cannot wait for
+	// len(podList.Items) == 0.
+	podList := &corev1.PodList{}
+	if err := f.Client.List(bctx, podList, inNs, withLabel); err != nil {
+		t.Fatalf("failed to list compliance-operator pods: %s", err)
+	}
+	oldPodUIDs := make([]types.UID, len(podList.Items))
+	for i := range podList.Items {
+		oldPodUIDs[i] = podList.Items[i].UID
+	}
+
 	if err := f.Client.DeleteAllOf(bctx, &corev1.Pod{}, inNs, withLabel); err != nil {
 		t.Fatalf("failed to delete compliance-operator pods: %s", err)
 	}
 
-	// Wait for the operator deletion to happen
-	time.Sleep(framework.RetryInterval)
+	if err := wait.Poll(framework.RetryInterval, framework.Timeout, func() (bool, error) {
+		podList := &corev1.PodList{}
+		if err := f.Client.List(bctx, podList, inNs, withLabel); err != nil {
+			return false, err
+		}
+		for i := range podList.Items {
+			for _, uid := range oldPodUIDs {
+				if uid == podList.Items[i].UID {
+					log.Printf("Waiting for old compliance-operator pod %s to finish deletion\n", podList.Items[i].Name)
+					return false, nil
+				}
+			}
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatalf("failed waiting for compliance-operator pods to be deleted: %s", err)
+	}
 
 	err = f.WaitForDeployment("compliance-operator", 1, framework.RetryInterval, framework.Timeout)
 	if err != nil {
@@ -427,4 +455,3 @@ func TestResultServerSAAndSecurityContext(t *testing.T) {
 		t.Fatalf("failed waiting for scan to complete: %s", err)
 	}
 }
-
