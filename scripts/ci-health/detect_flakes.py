@@ -5,9 +5,21 @@ import json
 import sys
 from collections import defaultdict
 
+# A job failing at least half its completed runs is behaving like a coin
+# flip rather than like a signal, so treat it as flaky.
 FLAKY_THRESHOLD = 0.50
+
+# Below half but still failing a quarter of the time is too frequent to be
+# noise and worth pulling logs for, without claiming it is definitely flaky.
 SUSPECT_THRESHOLD = 0.25
+
+# Failures spread across this many distinct branches are unlikely to share a
+# single root cause in the PRs themselves, which is what separates a flake
+# from a job that one change broke. Three is the smallest count where a
+# shared cause is implausible.
 MIN_PRS_FOR_FLAKY = 3
+
+# Two branches is weak evidence, which is why it only reaches "suspect".
 MIN_PRS_FOR_SUSPECT = 2
 
 
@@ -30,6 +42,7 @@ def build_failure_matrix(data):
                 "state": check["state"],
                 "changed_files": pr.get("changed_files", 0),
                 "branch": pr.get("branch", ""),
+                "gcs_bucket": check.get("gcs_bucket"),
                 "gcs_path": check.get("gcs_path"),
                 "prow_url": check.get("prow_url", ""),
             })
@@ -45,7 +58,24 @@ def classify_job(name, entries):
     failed_entries = [e for e in entries if e["state"] == "FAILURE"]
     passed_entries = [e for e in entries if e["state"] == "SUCCESS"]
     failure_count = len(failed_entries)
-    failure_rate = failure_count / total
+
+    # Rate over completed runs only. Counting in-flight runs as non-failures
+    # would make a job look healthier the busier CI is.
+    completed = failure_count + len(passed_entries)
+    if completed == 0:
+        return {
+            "name": name,
+            "classification": "no_data",
+            "failure_rate": None,
+            "failed_on_prs": [],
+            "passed_on_prs": [],
+            "total_prs": total,
+            "completed_prs": 0,
+            "branch_diversity": 0,
+            "evidence": f"All {total} run(s) still pending or skipped",
+            "failure_details": [],
+        }
+    failure_rate = failure_count / completed
 
     failed_prs = [e["pr"] for e in failed_entries]
     passed_prs = [e["pr"] for e in passed_entries]
@@ -59,7 +89,7 @@ def classify_job(name, entries):
     ):
         classification = "flaky"
         evidence = (
-            f"Fails on {failure_count}/{total} PRs "
+            f"Fails on {failure_count}/{completed} completed runs "
             f"across {branch_diversity} different branches"
         )
     elif (
@@ -68,22 +98,23 @@ def classify_job(name, entries):
     ):
         classification = "suspect"
         evidence = (
-            f"Fails on {failure_count}/{total} PRs "
+            f"Fails on {failure_count}/{completed} completed runs "
             f"across {branch_diversity} different branches"
         )
     elif failure_count > 0:
         classification = "likely_real"
         evidence = (
-            f"Fails on {failure_count}/{total} PRs, "
+            f"Fails on {failure_count}/{completed} completed runs, "
             f"limited to {branch_diversity} branch(es)"
         )
     else:
         classification = "stable"
-        evidence = f"Passes on all {total} PRs"
+        evidence = f"Passes on all {completed} completed run(s)"
 
     failure_details = [
         {
             "pr": e["pr"],
+            "gcs_bucket": e["gcs_bucket"],
             "gcs_path": e["gcs_path"],
             "prow_url": e["prow_url"],
         }
@@ -97,6 +128,7 @@ def classify_job(name, entries):
         "failed_on_prs": failed_prs,
         "passed_on_prs": passed_prs,
         "total_prs": total,
+        "completed_prs": completed,
         "branch_diversity": branch_diversity,
         "evidence": evidence,
         "failure_details": failure_details,
@@ -152,6 +184,7 @@ def main():
             "suspect": summary.get("suspect", 0),
             "likely_real": summary.get("likely_real", 0),
             "stable": summary.get("stable", 0),
+            "no_data": summary.get("no_data", 0),
         },
     }
 
@@ -168,9 +201,10 @@ def main():
     suspect = summary.get("suspect", 0)
     likely_real = summary.get("likely_real", 0)
     stable = summary.get("stable", 0)
+    no_data = summary.get("no_data", 0)
     print(
         f"Analysis: {flaky} flaky, {suspect} suspect, "
-        f"{likely_real} likely_real, {stable} stable "
+        f"{likely_real} likely_real, {stable} stable, {no_data} no_data "
         f"(across {len(prs_with_prow)} PRs with Prow checks)",
         file=sys.stderr,
     )

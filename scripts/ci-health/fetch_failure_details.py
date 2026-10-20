@@ -9,8 +9,42 @@ from collections import defaultdict
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-GCS_BASE = "https://storage.googleapis.com/test-platform-results"
-MAX_LOG_BYTES = 5 * 1024 * 1024  # 5MB cap per build log
+GCS_HOST = "https://storage.googleapis.com"
+
+# Used only if a check's Prow URL did not carry a bucket. openshift CI serves
+# compliance-operator artifacts from the public bucket; the non-public one
+# returns 403 to unauthenticated readers.
+DEFAULT_GCS_BUCKET = "test-platform-results-public"
+
+# e2e build logs run to a few MB; 5MB holds a full one while bounding memory
+# if a runaway job produces a log far larger than that.
+MAX_LOG_BYTES = 5 * 1024 * 1024
+
+# Plain object reads from GCS; anything slower than this is a fault, not
+# load.
+FETCH_TIMEOUT = 30
+
+# Error text is for triage, not a full transcript. These bound what lands in
+# the JSON so a reader can scan it.
+MAX_MESSAGE_CHARS = 500
+MAX_SUMMARY_CHARS = 300
+MAX_SAMPLE_ERROR_CHARS = 200
+
+# Go prints a test's output before its `--- FAIL:` line. Twenty lines covers
+# a typical assertion plus its context without pulling in the previous test.
+ERROR_CONTEXT_LINES = 20
+MAX_ERROR_LINES = 5
+
+# Enough distinct CI steps to show the failure pattern without dumping the
+# whole junit file into the report.
+MAX_CI_STEP_FAILURES = 5
+MAX_SAMPLE_ERRORS = 3
+MAX_SAMPLES_PER_OCCURRENCE = 2
+
+# Three occurrences is enough to tell a consistent failure from a varying
+# one, which is the distinction that matters for classifying a flake. Each
+# costs two network fetches, so analyzing every occurrence gets slow fast.
+DEFAULT_MAX_OCCURRENCES = 3
 
 
 def load_input(input_path):
@@ -21,26 +55,38 @@ def load_input(input_path):
 
 
 def fetch_url(url):
+    """Fetch a URL. Returns (text, reason) — reason is None on success.
+
+    A 404 is expected and routine: artifact layouts vary by job, so a missing
+    object is not an error worth stopping for. Anything else is reported so a
+    network problem is not silently read as "this job produced no artifacts".
+    """
     try:
-        with urlopen(url, timeout=30) as resp:
-            return resp.read(MAX_LOG_BYTES).decode("utf-8", errors="replace")
-    except (HTTPError, URLError, TimeoutError):
-        return None
+        with urlopen(url, timeout=FETCH_TIMEOUT) as resp:
+            return resp.read(MAX_LOG_BYTES).decode("utf-8", errors="replace"), None
+    except HTTPError as e:
+        if e.code == 404:
+            return None, "not found"
+        return None, f"HTTP {e.code}"
+    except (URLError, TimeoutError) as e:
+        print(f"      warning: could not fetch {url}: {e}", file=sys.stderr)
+        return None, f"unreachable: {e}"
 
 
 def step_name_from_job(job_name):
     return job_name.removeprefix("ci/prow/")
 
 
-def fetch_build_log(gcs_path, step_name):
-    url = f"{GCS_BASE}/{gcs_path}/artifacts/{step_name}/test/build-log.txt"
-    return fetch_url(url), url
+def fetch_build_log(gcs_bucket, gcs_path, step_name):
+    url = f"{GCS_HOST}/{gcs_bucket}/{gcs_path}/artifacts/{step_name}/test/build-log.txt"
+    content, reason = fetch_url(url)
+    return content, url, reason
 
 
-def fetch_junit_xml(gcs_path):
-    url = f"{GCS_BASE}/{gcs_path}/artifacts/junit_operator.xml"
-    content = fetch_url(url)
-    return content, url
+def fetch_junit_xml(gcs_bucket, gcs_path):
+    url = f"{GCS_HOST}/{gcs_bucket}/{gcs_path}/artifacts/junit_operator.xml"
+    content, reason = fetch_url(url)
+    return content, url, reason
 
 
 def parse_go_test_failures(log_text):
@@ -56,14 +102,16 @@ def parse_go_test_failures(log_text):
         duration = match.group(2)
 
         error_lines = []
-        for j in range(max(0, i - 20), i):
+        for j in range(max(0, i - ERROR_CONTEXT_LINES), i):
             prev = lines[j].strip()
             if re.match(r"\S+_test\.go:", prev) or prev.startswith("--- FAIL"):
                 error_lines.append(prev)
             elif "Error" in prev or "FAIL" in prev or "fail" in prev:
                 error_lines.append(prev)
 
-        error_summary = "\n".join(error_lines[-5:]) if error_lines else ""
+        error_summary = (
+            "\n".join(error_lines[-MAX_ERROR_LINES:]) if error_lines else ""
+        )
         failures.append({
             "test_name": test_name,
             "duration": duration,
@@ -88,8 +136,8 @@ def parse_junit_failures(xml_text):
         name = tc.get("name", "")
         message = failure.get("message", "")
         if not message and failure.text:
-            message = failure.text[:500]
-        failures.append({"step_name": name, "message": message[:500]})
+            message = failure.text[:MAX_MESSAGE_CHARS]
+        failures.append({"step_name": name, "message": message[:MAX_MESSAGE_CHARS]})
 
     return failures
 
@@ -123,7 +171,7 @@ def classify_failure(build_log, junit_xml, step_name):
     return "no_artifacts", []
 
 
-def process_job(job, max_occurrences=3):
+def process_job(job, max_occurrences=DEFAULT_MAX_OCCURRENCES):
     """Fetch and analyze failure details for a single flaky/suspect job."""
     job_name = job["name"]
     step_name = step_name_from_job(job_name)
@@ -135,15 +183,23 @@ def process_job(job, max_occurrences=3):
         return None
 
     for detail in details[:max_occurrences]:
+        pr = detail.get("pr", "unknown")
         gcs_path = detail.get("gcs_path")
         if not gcs_path:
+            print(
+                f"    PR #{pr}: no GCS path on this check, skipping. "
+                f"Prow URL was: {detail.get('prow_url', '(none)')}",
+                file=sys.stderr,
+            )
             continue
+        gcs_bucket = detail.get("gcs_bucket") or DEFAULT_GCS_BUCKET
 
-        pr = detail.get("pr", "unknown")
         print(f"    PR #{pr}: fetching logs...", file=sys.stderr)
 
-        build_log, log_url = fetch_build_log(gcs_path, step_name)
-        junit_xml, _ = fetch_junit_xml(gcs_path)
+        build_log, log_url, log_reason = fetch_build_log(
+            gcs_bucket, gcs_path, step_name
+        )
+        junit_xml, _, junit_reason = fetch_junit_xml(gcs_bucket, gcs_path)
 
         failure_type, failures = classify_failure(
             build_log, junit_xml, step_name
@@ -156,6 +212,14 @@ def process_job(job, max_occurrences=3):
             "prow_url": detail.get("prow_url", ""),
             "build_log_url": log_url,
         }
+
+        # The artifact layout differs between job types, so a miss here means
+        # "could not determine", not "nothing failed". Record why so the
+        # report does not present a fetch problem as a clean result.
+        if failure_type == "no_artifacts":
+            occurrence["no_artifacts_reason"] = (
+                f"build log: {log_reason}; junit: {junit_reason}"
+            )
 
         if failure_type == "test_failure" and isinstance(failures, list):
             if failures and "test_name" in failures[0]:
@@ -172,7 +236,7 @@ def process_job(job, max_occurrences=3):
                     {
                         "test_name": f.get("step_name", "unknown"),
                         "duration": "",
-                        "error_summary": f.get("message", "")[:300],
+                        "error_summary": f.get("message", "")[:MAX_SUMMARY_CHARS],
                     }
                     for f in failures
                 ]
@@ -180,9 +244,9 @@ def process_job(job, max_occurrences=3):
             occurrence["ci_step_failures"] = [
                 {
                     "step_name": f.get("step_name", ""),
-                    "message": f.get("message", "")[:300],
+                    "message": f.get("message", "")[:MAX_SUMMARY_CHARS],
                 }
-                for f in failures[:5]
+                for f in failures[:MAX_CI_STEP_FAILURES]
             ]
 
         occurrences.append(occurrence)
@@ -243,8 +307,11 @@ def main():
     parser.add_argument(
         "--max-occurrences",
         type=int,
-        default=3,
-        help="Max failure occurrences to analyze per job (default: 3)",
+        default=DEFAULT_MAX_OCCURRENCES,
+        help=(
+            "Max failure occurrences to analyze per job "
+            f"(default: {DEFAULT_MAX_OCCURRENCES})"
+        ),
     )
     args = parser.parse_args()
 
@@ -282,10 +349,10 @@ def main():
                 "failure_type": r["dominant_failure_type"],
                 "failure_rate": r["failure_rate"],
                 "sample_errors": [
-                    sf.get("message", "")[:200]
+                    sf.get("message", "")[:MAX_SAMPLE_ERROR_CHARS]
                     for occ in r["occurrences"]
-                    for sf in occ.get("ci_step_failures", [])[:2]
-                ][:3],
+                    for sf in occ.get("ci_step_failures", [])[:MAX_SAMPLES_PER_OCCURRENCE]
+                ][:MAX_SAMPLE_ERRORS],
             }
             for r in results
             if r["dominant_failure_type"] != "test_failure"
