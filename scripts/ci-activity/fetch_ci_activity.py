@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
@@ -12,18 +13,64 @@ PROW_API = "https://prow.ci.openshift.org/prowjobs.js"
 REPO_ORG = "ComplianceAsCode"
 REPO_NAME = "compliance-operator"
 
+# prowjobs.js has no server-side repo filter — passing one returns an empty
+# list rather than an error — so the whole fleet comes back and
+# is_compliance_operator_job() filters it here. Dropping these four fields
+# cuts the payload from roughly 200MB to 70MB without losing anything used
+# below.
+PROW_OMIT_FIELDS = "annotations,labels,decoration_config,pod_spec"
+
+# That payload is still tens of MB of JSON; 120s covers a slow transfer.
+FETCH_TIMEOUT = 120
+
+# The endpoint occasionally returns a transient 502/503 behind its load
+# balancer. Two retries clears those without making a hard outage slow to
+# report.
+MAX_RETRIES = 3
+RETRY_BACKOFF = 5
+
+# Prow drops completed jobs from this endpoint after roughly a day, so a
+# window longer than 24h would silently report partial data.
+MAX_HOURS = 24
+
 
 def fetch_prow_jobs():
-    url = f"{PROW_API}?repo={REPO_ORG}%2F{REPO_NAME}"
+    url = f"{PROW_API}?omit={PROW_OMIT_FIELDS}"
     print(f"Fetching Prow jobs from {url}...", file=sys.stderr)
-    try:
-        with urlopen(url, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError) as e:
-        print(f"Failed to fetch Prow API: {e}", file=sys.stderr)
+    print("  (large payload, this takes a minute)", file=sys.stderr)
+
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with urlopen(url, timeout=FETCH_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            break
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as e:
+            last_error = e
+            if attempt < MAX_RETRIES:
+                print(
+                    f"  attempt {attempt}/{MAX_RETRIES} failed ({e}), "
+                    f"retrying in {RETRY_BACKOFF}s...",
+                    file=sys.stderr,
+                )
+                time.sleep(RETRY_BACKOFF)
+    else:
+        print(
+            f"Could not reach the Prow API after {MAX_RETRIES} attempts: "
+            f"{last_error}\n"
+            f"Check network access to prow.ci.openshift.org, then retry. "
+            f"There is no offline fallback for this data.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     items = data.get("items", [])
+    if not items:
+        print(
+            "Prow API returned no jobs at all. This usually means the "
+            "endpoint is degraded rather than that CI is idle.",
+            file=sys.stderr,
+        )
     print(f"Fetched {len(items)} total Prow jobs.", file=sys.stderr)
     return items
 
@@ -63,8 +110,8 @@ def main():
     parser.add_argument(
         "--hours",
         type=int,
-        default=24,
-        help="Number of hours to look back, max 24 (default: 24)",
+        default=MAX_HOURS,
+        help=f"Number of hours to look back, max {MAX_HOURS} (default: {MAX_HOURS})",
     )
     parser.add_argument(
         "--e2e-only",
@@ -77,8 +124,12 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.hours < 1 or args.hours > 24:
-        print("--hours must be between 1 and 24", file=sys.stderr)
+    if args.hours < 1 or args.hours > MAX_HOURS:
+        print(
+            f"--hours must be between 1 and {MAX_HOURS}; Prow only retains "
+            f"about a day of job data on this endpoint.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     now = datetime.now(timezone.utc)
